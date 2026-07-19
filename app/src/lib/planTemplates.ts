@@ -85,19 +85,51 @@ function chunkArray<T>(arr: T[], chunkSize: number): T[][] {
   return chunks;
 }
 
+interface ChapterRef {
+  book: string;
+  ch: number;
+}
+
+/**
+ * Formats chapters as the reader's reference parser (lib/passage.ts) actually
+ * understands: "Book N-M" ranges for consecutive chapters of the same book,
+ * joined with "; " across book boundaries. A plain ", "-joined list of
+ * "Book N" refs (the previous approach) isn't a format the reader parses at
+ * all, so multi-chapter generated readings silently failed to open.
+ */
+function formatChapterRefs(items: ChapterRef[]): string {
+  if (items.length === 0) return "";
+  const runs: string[] = [];
+  let { book: runBook, ch: runStart } = items[0];
+  let runEnd = runStart;
+  for (let i = 1; i < items.length; i++) {
+    const { book, ch } = items[i];
+    if (book === runBook && ch === runEnd + 1) {
+      runEnd = ch;
+    } else {
+      runs.push(runStart === runEnd ? `${runBook} ${runStart}` : `${runBook} ${runStart}-${runEnd}`);
+      runBook = book;
+      runStart = ch;
+      runEnd = ch;
+    }
+  }
+  runs.push(runStart === runEnd ? `${runBook} ${runStart}` : `${runBook} ${runStart}-${runEnd}`);
+  return runs.join("; ");
+}
+
 /** New Testament (Matthew–Revelation) in 90 days, ~3 ch/day */
 function generateNT90(): PlanDay[] {
   const chapters = BIBLE_BOOKS
     .filter((b) => b.id >= 40)
-    .flatMap((b) => Array.from({ length: b.chapters }, (_, i) => `${b.name} ${i + 1}`));
+    .flatMap((b) => Array.from({ length: b.chapters }, (_, i) => ({ book: b.name, ch: i + 1 })));
   const perDay = Math.ceil(chapters.length / 90);
   return chunkArray(chapters, perDay).slice(0, 90).map((refs, i) => ({
     day: i + 1,
     tanakh: "",
     psalm: "",
     proverbs: "",
-    brit_chadashah: refs.join(", "),
-    theme: refs[0]?.split(" ").slice(0, -1).join(" ") ?? "",
+    brit_chadashah: formatChapterRefs(refs),
+    theme: refs[0]?.book ?? "",
     questions: [],
   }));
 }
@@ -106,27 +138,27 @@ function generateNT90(): PlanDay[] {
 function generateTorah50(): PlanDay[] {
   const chapters = BIBLE_BOOKS
     .filter((b) => b.id <= 5)
-    .flatMap((b) => Array.from({ length: b.chapters }, (_, i) => `${b.name} ${i + 1}`));
+    .flatMap((b) => Array.from({ length: b.chapters }, (_, i) => ({ book: b.name, ch: i + 1 })));
   const perDay = Math.ceil(chapters.length / 50);
   return chunkArray(chapters, perDay).slice(0, 50).map((refs, i) => ({
     day: i + 1,
-    tanakh: refs.join(", "),
+    tanakh: formatChapterRefs(refs),
     psalm: "",
     proverbs: "",
     brit_chadashah: "",
-    theme: refs[0]?.split(" ").slice(0, -1).join(" ") ?? "",
+    theme: refs[0]?.book ?? "",
     questions: [],
   }));
 }
 
 /** Psalms (5/day) + Proverbs (1 ch/day) in 30 days */
 function generatePsalms30(): PlanDay[] {
-  const psalms = Array.from({ length: 150 }, (_, i) => `Psalms ${i + 1}`);
+  const psalms = Array.from({ length: 150 }, (_, i) => ({ book: "Psalms", ch: i + 1 }));
   const proverbs = BIBLE_BOOKS.find((b) => b.id === 20)!;
   return Array.from({ length: 30 }, (_, i) => ({
     day: i + 1,
     tanakh: "",
-    psalm: psalms.slice(i * 5, i * 5 + 5).join(", "),
+    psalm: formatChapterRefs(psalms.slice(i * 5, i * 5 + 5)),
     proverbs: `Proverbs ${(i % proverbs.chapters) + 1}`,
     brit_chadashah: "",
     theme: `Day ${i + 1} — Psalms ${i * 5 + 1}–${i * 5 + 5}`,
@@ -140,8 +172,8 @@ function generateWholeBible1yr(): PlanDay[] {
     .flatMap((b) => Array.from({ length: b.chapters }, (_, i) => ({ book: b.name, ch: i + 1, nt: b.id >= 40 })));
   const perDay = Math.ceil(chapters.length / 365);
   return chunkArray(chapters, perDay).slice(0, 365).map((refs, i) => {
-    const tanakh = refs.filter((r) => !r.nt).map((r) => `${r.book} ${r.ch}`).join(", ");
-    const nt = refs.filter((r) => r.nt).map((r) => `${r.book} ${r.ch}`).join(", ");
+    const tanakh = formatChapterRefs(refs.filter((r) => !r.nt));
+    const nt = formatChapterRefs(refs.filter((r) => r.nt));
     const first = refs[0];
     return {
       day: i + 1,
@@ -167,12 +199,8 @@ export function generateCustomPlan(
 
   const chunks = chunkArray(allChapters, chaptersPerDay);
   return chunks.map((refs, i) => {
-    const tanakh = ntSeparate
-      ? refs.filter((r) => !r.nt).map((r) => `${r.book} ${r.ch}`).join(", ")
-      : refs.map((r) => `${r.book} ${r.ch}`).join(", ");
-    const nt = ntSeparate
-      ? refs.filter((r) => r.nt).map((r) => `${r.book} ${r.ch}`).join(", ")
-      : "";
+    const tanakh = formatChapterRefs(ntSeparate ? refs.filter((r) => !r.nt) : refs);
+    const nt = ntSeparate ? formatChapterRefs(refs.filter((r) => r.nt)) : "";
     return {
       day: i + 1,
       tanakh,
