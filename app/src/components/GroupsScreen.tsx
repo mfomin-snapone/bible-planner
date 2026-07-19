@@ -1,10 +1,12 @@
 import { useEffect, useState, useCallback } from "react";
-import type { Group, GroupMember, DmChannel } from "../types";
+import type { Group, GroupMember, DmChannel, Thread, AppNotification } from "../types";
 import {
   listGroups, getGroup, createGroup, joinGroup, lookupInviteCode,
   updateGroup, searchUsers, getOrCreateDM, listDMs,
   uploadPublicKey as _uploadPublicKey, fetchPublicKey,
   uploadChannelKey, uploadGroupKey,
+  listThreads, createThread,
+  listNotifications, markNotificationsRead,
 } from "../lib/api";
 import {
   getOrCreateKeyPair, exportPublicKey, generateChannelKey,
@@ -14,7 +16,7 @@ import { realtime } from "../lib/realtime";
 import { useAppState } from "../state/AppState";
 import {
   UsersIcon, PersonAddIcon, MessageCircleIcon,
-  ChevronRightIcon, CopyIcon,
+  ChevronRightIcon, CopyIcon, BellIcon, PencilIcon,
 } from "./icons";
 import ChatView from "./ChatView";
 
@@ -25,7 +27,7 @@ type View =
   | { kind: "create" }
   | { kind: "join" }
   | { kind: "detail"; groupId: string }
-  | { kind: "chat"; channelId: string; title: string }
+  | { kind: "chat"; channelId: string; title: string; isGroup?: boolean; groupId?: string }
   | { kind: "dm_list" }
   | { kind: "dm_new" };
 
@@ -37,6 +39,10 @@ export default function GroupsScreen() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [dms, setDms] = useState<DmChannel[]>([]);
   const [loading, setLoading] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [showNotifs, setShowNotifs] = useState(false);
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   const reload = useCallback(async () => {
     if (!user) return;
@@ -49,7 +55,25 @@ export default function GroupsScreen() {
     setLoading(false);
   }, [user]);
 
+  const reloadNotifs = useCallback(async () => {
+    if (!user) return;
+    try { setNotifications((await listNotifications()).notifications); } catch { /* ignore */ }
+  }, [user]);
+
   useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => { void reloadNotifs(); }, [reloadNotifs]);
+
+  // WS: new notification
+  useEffect(() => {
+    const unsub = realtime.on("notification:new", () => { void reloadNotifs(); });
+    return unsub;
+  }, [reloadNotifs]);
+
+  // WS: new thread
+  useEffect(() => {
+    const unsub = realtime.on("thread:new", () => { void reload(); });
+    return unsub;
+  }, [reload]);
 
   if (!user) return (
     <div className="groups-empty">
@@ -63,6 +87,8 @@ export default function GroupsScreen() {
       <ChatView
         channelId={view.channelId}
         title={view.title}
+        isGroup={view.isGroup}
+        groupId={view.groupId}
         onBack={() => setView({ kind: "list" })}
       />
     );
@@ -78,7 +104,7 @@ export default function GroupsScreen() {
       <GroupDetailView
         groupId={view.groupId}
         onBack={() => setView({ kind: "list" })}
-        onChat={(channelId, title) => setView({ kind: "chat", channelId, title })}
+        onChat={(channelId, title, isGroup, chatGroupId) => setView({ kind: "chat", channelId, title, isGroup, groupId: chatGroupId })}
         onChanged={reload}
       />
     );
@@ -98,6 +124,43 @@ export default function GroupsScreen() {
       <div className="groups-header">
         <h2 className="groups-title">Community</h2>
         <div className="groups-header-actions">
+          {/* Notifications bell */}
+          <div className="notif-bell-wrap">
+            <button
+              className="groups-icon-btn"
+              title="Notifications"
+              onClick={async () => {
+                setShowNotifs((v) => !v);
+                if (!showNotifs && unreadCount > 0) {
+                  await markNotificationsRead().catch(() => {});
+                  setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+                }
+              }}
+            >
+              <BellIcon />
+              {unreadCount > 0 && <span className="notif-badge">{unreadCount > 9 ? "9+" : unreadCount}</span>}
+            </button>
+            {showNotifs && (
+              <div className="notif-panel">
+                <div className="notif-panel-header">
+                  <span>Notifications</span>
+                  <button className="link-btn small" onClick={() => setShowNotifs(false)}>Close</button>
+                </div>
+                {notifications.length === 0 && <p className="notif-empty">No notifications yet.</p>}
+                {notifications.slice(0, 20).map((n) => (
+                  <div key={n.id} className={`notif-item ${n.read ? "" : "notif-unread"}`}>
+                    <span className="notif-icon">{n.type === "reaction" ? "❤️" : n.type === "message" ? "💬" : "👥"}</span>
+                    <div className="notif-body">
+                      {n.type === "reaction" && <span>{ (n.data.fromUsername as string) } reacted {n.data.emoji as string} to your message</span>}
+                      {n.type === "message" && <span>{ (n.data.fromUsername as string) } sent a message</span>}
+                      {n.type === "group_join" && <span>Someone joined your group</span>}
+                      <span className="notif-time">{formatRelativeTime(n.createdAt)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <button className="groups-icon-btn" title="Join a group" onClick={() => setView({ kind: "join" })}>
             <PersonAddIcon />
           </button>
@@ -324,11 +387,13 @@ function GroupDetailView({
 }: {
   groupId: string;
   onBack: () => void;
-  onChat: (channelId: string, title: string) => void;
+  onChat: (channelId: string, title: string, isGroup?: boolean, chatGroupId?: string) => void;
   onChanged: () => void;
 }) {
   const { user } = useAppState();
   const [group, setGroup] = useState<(Group & { members: GroupMember[] }) | null>(null);
+  const [threads, setThreads] = useState<Thread[]>([]);
+  const [showNewThread, setShowNewThread] = useState(false);
   const [editPlan, setEditPlan] = useState(false);
   const [newStartDate, setNewStartDate] = useState("");
   const [newStartDay, setNewStartDay] = useState(1);
@@ -336,7 +401,11 @@ function GroupDetailView({
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    try { setGroup(await getGroup(groupId)); } catch { /* ignore */ }
+    try {
+      const [g, tRes] = await Promise.all([getGroup(groupId), listThreads(groupId)]);
+      setGroup(g);
+      setThreads(tRes.threads);
+    } catch { /* ignore */ }
   }, [groupId]);
 
   useEffect(() => { void load(); }, [load]);
@@ -432,11 +501,37 @@ function GroupDetailView({
       </div>
 
       {group.channelId && (
-        <button className="groups-chat-btn" onClick={() => onChat(group.channelId!, group.name)}>
+        <button className="groups-chat-btn" onClick={() => onChat(group.channelId!, group.name, true, group.id)}>
           <MessageCircleIcon />
           Open Group Chat
         </button>
       )}
+
+      {/* Threads section */}
+      <section className="groups-section">
+        <div className="groups-section-header">
+          <h3 className="groups-section-title">Threads</h3>
+          <button className="groups-text-btn" onClick={() => setShowNewThread(true)}>+ New Thread</button>
+        </div>
+        {threads.length === 0 && <p className="groups-empty-text">No threads yet. Create one to start a focused discussion.</p>}
+        {threads.map((t) => (
+          <button key={t.id} className="groups-row thread-row" onClick={() => onChat(t.channelId, `${t.emoji} ${t.name}`, true, groupId)}>
+            <div className="thread-emoji-badge">{t.emoji}</div>
+            <div className="groups-row-info">
+              <span className="groups-row-name">{t.name}</span>
+              {t.lastMessageAt && <span className="groups-row-sub">{formatRelativeTime(t.lastMessageAt)}</span>}
+            </div>
+            <ChevronRightIcon className="groups-row-chevron" />
+          </button>
+        ))}
+        {showNewThread && (
+          <NewThreadModal
+            groupId={groupId}
+            onClose={() => setShowNewThread(false)}
+            onCreated={(thread) => { setThreads((prev) => [...prev, thread]); setShowNewThread(false); }}
+          />
+        )}
+      </section>
 
       <section className="groups-section">
         <h3 className="groups-section-title">Members ({group.members.length})</h3>
@@ -449,6 +544,77 @@ function GroupDetailView({
           </div>
         ))}
       </section>
+    </div>
+  );
+}
+
+// ─── New Thread Modal ─────────────────────────────────────────────────────────
+
+const THREAD_EMOJIS = ["💬", "📖", "🙏", "❤️", "✝️", "🕊️", "🌟", "💡", "🔥", "📝", "🗣️", "👥", "📌", "🎯", "❓", "🌿", "⚡", "🎵"];
+
+function NewThreadModal({ groupId, onClose, onCreated }: {
+  groupId: string;
+  onClose: () => void;
+  onCreated: (thread: Thread) => void;
+}) {
+  const [name, setName] = useState("");
+  const [emoji, setEmoji] = useState("💬");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [editingEmoji, setEditingEmoji] = useState(false);
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) { setErr("Thread name is required."); return; }
+    setBusy(true);
+    try {
+      const { id, channelId } = await createThread(groupId, name.trim(), emoji);
+      onCreated({ id, groupId, channelId, name: name.trim(), emoji, createdBy: "", createdAt: Date.now(), lastMessageAt: null });
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Failed to create thread.");
+    }
+    setBusy(false);
+  }
+
+  return (
+    <div className="thread-modal-backdrop" onClick={onClose}>
+      <div className="thread-modal" onClick={(e) => e.stopPropagation()}>
+        <h3 className="thread-modal-title">New Thread</h3>
+        <form onSubmit={(e) => void handleCreate(e)}>
+          <div className="thread-emoji-row">
+            <button type="button" className="thread-emoji-trigger" onClick={() => setEditingEmoji((v) => !v)}>
+              <span className="thread-emoji-big">{emoji}</span>
+              <PencilIcon className="thread-emoji-edit-icon" />
+            </button>
+            {editingEmoji && (
+              <div className="thread-emoji-picker">
+                {THREAD_EMOJIS.map((e) => (
+                  <button key={e} type="button" className={`thread-emoji-opt ${e === emoji ? "selected" : ""}`}
+                    onClick={() => { setEmoji(e); setEditingEmoji(false); }}>
+                    {e}
+                  </button>
+                ))}
+              </div>
+            )}
+            <input
+              className="groups-input"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Thread name…"
+              maxLength={80}
+              autoFocus
+              style={{ flex: 1 }}
+            />
+          </div>
+          {err && <p className="groups-error">{err}</p>}
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button className="btn-primary" type="submit" disabled={busy || !name.trim()}>
+              {busy ? "Creating…" : "Create Thread"}
+            </button>
+            <button className="btn-secondary" type="button" onClick={onClose}>Cancel</button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

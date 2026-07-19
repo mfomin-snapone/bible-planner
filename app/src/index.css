@@ -1243,3 +1243,103 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .btn-secondary:hover { background: var(--hover); }
 .btn-sm { padding: 6px 12px; font-size: 0.82rem; }
 
+/* ─── Typing indicator ────────────────────────────────────────────────────── */
+.typing-indicator { display: flex; align-items: center; gap: 6px; padding: 6px 16px 0; }
+.typing-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0;
+  animation: typing-bounce 1.2s infinite ease-in-out; }
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-5px); opacity: 1; }
+}
+.typing-label { font-size: 0.8rem; color: var(--text-muted); }
+
+/* ─── Reaction picker ─────────────────────────────────────────────────────── */
+.chat-bubble-wrap { position: relative; display: flex; flex-direction: column; }
+.chat-bubble { position: relative; }
+.chat-react-btn {
+  position: absolute; right: -28px; top: 50%; transform: translateY(-50%);
+  opacity: 0; background: none; border: none; cursor: pointer; color: var(--text-muted);
+  padding: 2px; width: 22px; height: 22px; transition: opacity 0.15s;
+}
+.chat-bubble:hover .chat-react-btn { opacity: 1; }
+.chat-react-btn svg { width: 16px; height: 16px; }
+.reaction-picker {
+  position: absolute; bottom: calc(100% + 8px); left: 0;
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: 24px;
+  padding: 6px 10px; display: flex; gap: 4px; box-shadow: var(--shadow); z-index: 50;
+}
+.chat-mine .reaction-picker { left: auto; right: 0; }
+.reaction-pick-btn { font-size: 1.3rem; background: none; border: none; cursor: pointer; padding: 2px; transition: transform 0.1s; }
+.reaction-pick-btn:hover { transform: scale(1.3); }
+.chat-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.chat-reaction {
+  display: flex; align-items: center; gap: 3px; background: var(--card-bg);
+  border: 1px solid var(--border); border-radius: 12px; padding: 2px 7px;
+  font-size: 0.82rem; cursor: pointer;
+}
+.chat-reaction.mine { border-color: var(--accent); background: var(--accent-bg); }
+.chat-reaction-count { font-size: 0.75rem; color: var(--text-muted); }
+
+/* ─── GIF ─────────────────────────────────────────────────────────────────── */
+.chat-gif { max-width: 240px; max-height: 180px; border-radius: 8px; display: block; }
+.chat-gif-btn { background: none; border: none; cursor: pointer; color: var(--text-muted); padding: 4px; display: flex; align-items: center; }
+.chat-gif-btn svg { width: 22px; height: 22px; }
+.gif-picker { background: var(--card-bg); border-top: 1px solid var(--border); padding: 10px 12px; max-height: 220px; overflow-y: auto; }
+.gif-search-input {
+  width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg); color: var(--text); font-size: 0.9rem; margin-bottom: 8px; box-sizing: border-box;
+}
+.gif-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.gif-item { background: none; border: none; padding: 0; cursor: pointer; border-radius: 6px; overflow: hidden; }
+.gif-item img { width: 100%; height: 80px; object-fit: cover; display: block; }
+.gif-url-form { display: flex; gap: 8px; }
+
+/* ─── Notification bell ───────────────────────────────────────────────────── */
+.notif-bell-wrap { position: relative; }
+.notif-badge {
+  position: absolute; top: -4px; right: -4px; background: var(--danger); color: #fff;
+  border-radius: 10px; font-size: 0.65rem; font-weight: 700; min-width: 16px; height: 16px;
+  display: flex; align-items: center; justify-content: center; padding: 0 3px; pointer-events: none;
+}
+.notif-panel {
+  position: absolute; right: 0; top: 110%; width: 280px; max-height: 340px; overflow-y: auto;
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: var(--shadow); z-index: 100; padding: 0;
+}
+.notif-panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 0.9rem;
+}
+.notif-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.notif-item.notif-unread { background: var(--accent-bg); }
+.notif-icon { font-size: 1.1rem; margin-top: 2px; flex-shrink: 0; }
+.notif-body { display: flex; flex-direction: column; gap: 2px; font-size: 0.85rem; }
+.notif-time { font-size: 0.75rem; color: var(--text-muted); }
+.notif-empty { padding: 16px 14px; font-size: 0.85rem; color: var(--text-muted); }
+
+/* ─── Threads ─────────────────────────────────────────────────────────────── */
+.groups-section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.groups-empty-text { font-size: 0.85rem; color: var(--text-muted); margin: 8px 0; }
+.thread-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.thread-emoji-badge { font-size: 1.3rem; width: 36px; text-align: center; flex-shrink: 0; }
+
+/* ─── New Thread Modal ────────────────────────────────────────────────────── */
+.thread-modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 200;
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.thread-modal {
+  background: var(--card-bg); border-radius: 16px; padding: 24px; width: 100%; max-width: 400px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+}
+.thread-modal-title { font-size: 1.1rem; font-weight: 700; margin: 0 0 16px; color: var(--text-h); }
+.thread-emoji-row { display: flex; align-items: center; gap: 10px; }
+.thread-emoji-trigger { background: none; border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+.thread-emoji-big { font-size: 1.6rem; }
+.thread-emoji-edit-icon { width: 14px; height: 14px; color: var(--text-muted); }
+.thread-emoji-picker { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; background: var(--bg); border-radius: 10px; margin: 8px 0; }
+.thread-emoji-opt { font-size: 1.4rem; background: none; border: 1px solid transparent; border-radius: 6px; cursor: pointer; padding: 2px 4px; }
+.thread-emoji-opt.selected { border-color: var(--accent); background: var(--accent-bg); }
+

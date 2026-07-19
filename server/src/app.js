@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import express from "express";
 import { db, dbHost, dbMode } from "./db.js";
 import { hashPassword, requireAuth, signToken, verifyPassword } from "./auth.js";
-import { pushToUser } from "./ws.js";
+import { pushToUser, broadcastToChannel } from "./ws.js";
 
 export const app = express();
 
@@ -503,11 +503,29 @@ app.get("/api/channels/:id/messages", requireAuth, async (req, res) => {
             ORDER BY m.sent_at DESC LIMIT ?`,
       args: [req.params.id, before, limit],
     });
+    // Fetch reactions for these messages in one query
+    const msgIds = rows.map((r) => String(r.id));
+    let reactionsMap = {};
+    if (msgIds.length > 0) {
+      const placeholders = msgIds.map(() => "?").join(",");
+      const { rows: rRows } = await db.execute({
+        sql: `SELECT r.message_id, r.emoji, r.user_id, u2.username
+              FROM reactions r JOIN users u2 ON u2.id = r.user_id
+              WHERE r.message_id IN (${placeholders})`,
+        args: msgIds,
+      });
+      for (const r of rRows) {
+        const mid = String(r.message_id);
+        if (!reactionsMap[mid]) reactionsMap[mid] = [];
+        reactionsMap[mid].push({ emoji: String(r.emoji), userId: String(r.user_id), username: String(r.username) });
+      }
+    }
     res.json({
       messages: rows.reverse().map((r) => ({
         id: String(r.id), channelId: String(r.channel_id),
         senderId: String(r.sender_id), senderUsername: String(r.sender_username),
         content: String(r.content), sentAt: Number(r.sent_at),
+        reactions: reactionsMap[String(r.id)] ?? [],
       })),
     });
   } catch (err) {
@@ -529,8 +547,8 @@ app.post("/api/channels/:id/messages", requireAuth, async (req, res) => {
       sql: "INSERT INTO messages (id, channel_id, sender_id, content, sent_at) VALUES (?, ?, ?, ?, ?)",
       args: [id, channelId, req.userId, content, sentAt],
     });
-    const msg = { id, channelId, senderId: req.userId, senderUsername: req.username, content, sentAt };
-    // Push real-time event to all channel participants
+    const msg = { id, channelId, senderId: req.userId, senderUsername: req.username, content, sentAt, reactions: [] };
+    // Push real-time + create notifications for all participants
     const { rows: dmParts } = await db.execute({
       sql: "SELECT user_id FROM channel_participants WHERE channel_id = ?", args: [channelId],
     });
@@ -539,11 +557,134 @@ app.post("/api/channels/:id/messages", requireAuth, async (req, res) => {
             WHERE c.id = ?`, args: [channelId],
     });
     const recipients = new Set([...dmParts, ...gParts].map((r) => String(r.user_id)));
-    for (const uid of recipients) pushToUser(uid, "message:new", msg);
+    for (const uid of recipients) {
+      pushToUser(uid, "message:new", msg);
+      if (uid !== req.userId) {
+        const nid = crypto.randomUUID();
+        await db.execute({
+          sql: "INSERT INTO notifications (id, user_id, type, channel_id, data, created_at) VALUES (?, ?, 'message', ?, ?, ?)",
+          args: [nid, uid, channelId, JSON.stringify({ fromUsername: req.username, preview: content.slice(0, 80) }), sentAt],
+        }).catch(() => {});
+        pushToUser(uid, "notification:new", { type: "message", channelId, fromUsername: req.username });
+      }
+    }
     res.json(msg);
   } catch (err) {
     console.error("[messages:post]", err);
     res.status(500).json({ error: "Unable to send message." });
   }
+});
+
+// ─── Reactions ────────────────────────────────────────────────────────────────
+
+app.post("/api/messages/:id/reactions", requireAuth, async (req, res) => {
+  try {
+    const { emoji } = req.body ?? {};
+    if (!emoji || typeof emoji !== "string") return res.status(400).json({ error: "emoji required" });
+    const msgId = req.params.id;
+    const { rows: msgRows } = await db.execute({
+      sql: "SELECT channel_id, sender_id FROM messages WHERE id = ?",
+      args: [msgId],
+    });
+    if (!msgRows[0]) return res.status(404).json({ error: "Message not found." });
+    const channelId = String(msgRows[0].channel_id);
+    if (!(await canAccessChannel(req.userId, channelId))) return res.status(403).json({ error: "Forbidden." });
+
+    const existing = await db.execute({
+      sql: "SELECT 1 FROM reactions WHERE message_id = ? AND user_id = ? AND emoji = ?",
+      args: [msgId, req.userId, emoji],
+    });
+    if (existing.rows.length > 0) {
+      await db.execute({ sql: "DELETE FROM reactions WHERE message_id = ? AND user_id = ? AND emoji = ?", args: [msgId, req.userId, emoji] });
+    } else {
+      await db.execute({ sql: "INSERT INTO reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?)", args: [msgId, req.userId, emoji, Date.now()] });
+      const authorId = String(msgRows[0].sender_id);
+      if (authorId !== req.userId) {
+        const nid = crypto.randomUUID();
+        await db.execute({
+          sql: "INSERT INTO notifications (id, user_id, type, channel_id, data, created_at) VALUES (?, ?, 'reaction', ?, ?, ?)",
+          args: [nid, authorId, channelId, JSON.stringify({ messageId: msgId, emoji, fromUsername: req.username }), Date.now()],
+        }).catch(() => {});
+        pushToUser(authorId, "notification:new", { type: "reaction", emoji, fromUsername: req.username });
+      }
+    }
+    const { rows: rRows } = await db.execute({
+      sql: "SELECT r.emoji, r.user_id, u.username FROM reactions r JOIN users u ON u.id = r.user_id WHERE r.message_id = ? ORDER BY r.created_at",
+      args: [msgId],
+    });
+    const reactions = rRows.map((r) => ({ emoji: String(r.emoji), userId: String(r.user_id), username: String(r.username) }));
+    await broadcastToChannel(channelId, "message:reaction", { messageId: msgId, reactions }, null);
+    res.json({ reactions });
+  } catch (err) {
+    console.error("[reactions]", err);
+    res.status(500).json({ error: "Unable to toggle reaction." });
+  }
+});
+
+// ─── Threads ──────────────────────────────────────────────────────────────────
+
+app.get("/api/groups/:id/threads", requireAuth, async (req, res) => {
+  try {
+    const { rows: mem } = await db.execute({ sql: "SELECT role FROM group_members WHERE group_id = ? AND user_id = ?", args: [req.params.id, req.userId] });
+    if (!mem[0]) return res.status(403).json({ error: "Not a member." });
+    const { rows } = await db.execute({
+      sql: `SELECT t.id, t.name, t.emoji, t.channel_id, t.created_by, t.created_at,
+                   (SELECT sent_at FROM messages WHERE channel_id = t.channel_id ORDER BY sent_at DESC LIMIT 1) as last_at
+            FROM threads t WHERE t.group_id = ? ORDER BY t.created_at`,
+      args: [req.params.id],
+    });
+    res.json({ threads: rows.map((r) => ({ id: String(r.id), name: String(r.name), emoji: String(r.emoji), channelId: String(r.channel_id), createdBy: String(r.created_by), createdAt: Number(r.created_at), lastMessageAt: r.last_at ? Number(r.last_at) : null })) });
+  } catch (err) { res.status(500).json({ error: "Unable to load threads." }); }
+});
+
+app.post("/api/groups/:id/threads", requireAuth, async (req, res) => {
+  try {
+    const gid = req.params.id;
+    const { rows: mem } = await db.execute({ sql: "SELECT role FROM group_members WHERE group_id = ? AND user_id = ?", args: [gid, req.userId] });
+    if (!mem[0]) return res.status(403).json({ error: "Not a member." });
+    const { name, emoji = "💬" } = req.body ?? {};
+    if (!name || typeof name !== "string") return res.status(400).json({ error: "name required" });
+    const threadId = crypto.randomUUID();
+    const channelId = crypto.randomUUID();
+    const now = Date.now();
+    await db.execute({ sql: "INSERT INTO channels (id, type, group_id, created_at) VALUES (?, 'thread', ?, ?)", args: [channelId, gid, now] });
+    await db.execute({ sql: "INSERT INTO threads (id, group_id, channel_id, name, emoji, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", args: [threadId, gid, channelId, name.slice(0, 80), emoji, req.userId, now] });
+    const { rows: members } = await db.execute({ sql: "SELECT user_id FROM group_members WHERE group_id = ?", args: [gid] });
+    for (const m of members) pushToUser(String(m.user_id), "thread:new", { groupId: gid, threadId, name, emoji, channelId });
+    res.json({ id: threadId, channelId });
+  } catch (err) { console.error("[threads:post]", err); res.status(500).json({ error: "Unable to create thread." }); }
+});
+
+app.put("/api/threads/:id", requireAuth, async (req, res) => {
+  try {
+    const { rows } = await db.execute({
+      sql: "SELECT t.group_id FROM threads t JOIN group_members gm ON gm.group_id = t.group_id AND gm.user_id = ? WHERE t.id = ?",
+      args: [req.userId, req.params.id],
+    });
+    if (!rows[0]) return res.status(403).json({ error: "Not a member or thread not found." });
+    const { name, emoji } = req.body ?? {};
+    await db.execute({ sql: "UPDATE threads SET name = COALESCE(?, name), emoji = COALESCE(?, emoji) WHERE id = ?", args: [name ?? null, emoji ?? null, req.params.id] });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: "Unable to update thread." }); }
+});
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+
+app.get("/api/notifications", requireAuth, async (req, res) => {
+  try {
+    const { rows } = await db.execute({
+      sql: "SELECT id, type, channel_id, data, read, created_at FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
+      args: [req.userId],
+    });
+    const notifications = rows.map((r) => ({ id: String(r.id), type: String(r.type), channelId: r.channel_id ? String(r.channel_id) : null, data: JSON.parse(String(r.data)), read: Boolean(r.read), createdAt: Number(r.created_at) }));
+    res.json({ notifications, unreadCount: notifications.filter((n) => !n.read).length });
+  } catch (err) { res.status(500).json({ error: "Unable to load notifications." }); }
+});
+
+app.post("/api/notifications/read-all", requireAuth, async (req, res) => {
+  try {
+    await db.execute({ sql: "UPDATE notifications SET read = 1 WHERE user_id = ? AND read = 0", args: [req.userId] });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: "Unable to mark read." }); }
 });
 

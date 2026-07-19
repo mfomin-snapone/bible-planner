@@ -1,4 +1,4 @@
-import type { DmChannel, Group, GroupMember, Message, PlanState, User } from "../types";
+import type { DmChannel, Group, GroupMember, Message, PlanState, Reaction, Thread, AppNotification, User } from "../types";
 
 const TOKEN_KEY = "bible-planner:token";
 const USER_KEY = "bible-planner:user";
@@ -168,4 +168,43 @@ export function sendMessage(channelId: string, content: string) {
     method: "POST",
     body: JSON.stringify({ content }),
   });
+}
+
+// ─── Reactions ────────────────────────────────────────────────────────────────
+
+export function toggleReaction(messageId: string, emoji: string) {
+  return request<{ reactions: Reaction[] }>(`/api/messages/${encodeURIComponent(messageId)}/reactions`, {
+    method: "POST",
+    body: JSON.stringify({ emoji }),
+  });
+}
+
+// ─── Threads ─────────────────────────────────────────────────────────────────
+
+export function listThreads(groupId: string) {
+  return request<{ threads: Thread[] }>(`/api/groups/${encodeURIComponent(groupId)}/threads`);
+}
+
+export function createThread(groupId: string, name: string, emoji: string) {
+  return request<{ id: string; channelId: string }>(`/api/groups/${encodeURIComponent(groupId)}/threads`, {
+    method: "POST",
+    body: JSON.stringify({ name, emoji }),
+  });
+}
+
+export function updateThread(threadId: string, patch: { name?: string; emoji?: string }) {
+  return request<{ ok: boolean }>(`/api/threads/${encodeURIComponent(threadId)}`, {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
+}
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+
+export function listNotifications() {
+  return request<{ notifications: AppNotification[]; unreadCount: number }>("/api/notifications");
+}
+
+export function markNotificationsRead() {
+  return request<{ ok: boolean }>("/api/notifications/read-all", { method: "POST" });
 }

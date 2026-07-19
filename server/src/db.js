@@ -95,6 +95,35 @@ const SCHEMA_STATEMENTS = [
     sent_at INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, sent_at DESC)`,
+  // Emoji reactions on messages
+  `CREATE TABLE IF NOT EXISTS reactions (
+    message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id    TEXT NOT NULL REFERENCES users(id),
+    emoji      TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (message_id, user_id, emoji)
+  )`,
+  // Named discussion threads (sub-channels within a group)
+  `CREATE TABLE IF NOT EXISTS threads (
+    id         TEXT PRIMARY KEY,
+    group_id   TEXT NOT NULL REFERENCES groups_data(id),
+    channel_id TEXT NOT NULL REFERENCES channels(id),
+    name       TEXT NOT NULL,
+    emoji      TEXT NOT NULL DEFAULT '💬',
+    created_by TEXT NOT NULL REFERENCES users(id),
+    created_at INTEGER NOT NULL
+  )`,
+  // In-app notifications
+  `CREATE TABLE IF NOT EXISTS notifications (
+    id         TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL REFERENCES users(id),
+    type       TEXT NOT NULL,
+    channel_id TEXT,
+    data       TEXT NOT NULL DEFAULT '{}',
+    read       INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, created_at DESC)`,
 ];
 
 for (const sql of SCHEMA_STATEMENTS) {

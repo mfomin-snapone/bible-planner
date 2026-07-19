@@ -39,6 +39,13 @@ class RealtimeClient {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
+  /** Send a raw event to the server (fire-and-forget). */
+  send(payload: { event: string; data: unknown }): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      try { this.ws.send(JSON.stringify(payload)); } catch { /* ignore */ }
+    }
+  }
+
   private _open(): void {
     if (!this.url) return;
     try {

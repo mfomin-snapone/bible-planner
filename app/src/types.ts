@@ -157,7 +157,35 @@ export interface Message {
   channelId: string;
   senderId: string;
   senderUsername: string;
-  /** JSON-stringified EncryptedMessage or plain text if encryption not yet set up. */
+  /** JSON-stringified EncryptedMessage, GIF JSON, or plain text. */
   content: string;
   sentAt: number;
+  reactions: Reaction[];
+}
+
+export interface Reaction {
+  messageId?: string;
+  emoji: string;
+  userId: string;
+  username: string;
+}
+
+export interface Thread {
+  id: string;
+  groupId?: string;
+  channelId: string;
+  name: string;
+  emoji: string;
+  createdBy: string;
+  createdAt: number;
+  lastMessageAt: number | null;
+}
+
+export interface AppNotification {
+  id: string;
+  type: "message" | "reaction" | "group_join" | "thread_new";
+  channelId: string | null;
+  data: Record<string, unknown>;
+  read: boolean;
+  createdAt: number;
 }
