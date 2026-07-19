@@ -10,6 +10,48 @@ tracing how the Tanakh anticipates Yeshua the Messiah.
 - `data/plan.json` — the full 365-day plan. This is the file to use.
 - `data/schedule.json` — just the day-by-day passage references (no themes/questions), useful if you want to regenerate content differently.
 - `scripts/build-schedule.js` — the script that generated `schedule.json` (deterministic, re-runnable).
+- `web/` — **the app**: an installable PWA (Vite + React + Turso on Vercel) with an
+  in-app Bible reader and cross-device sync. See [web/README.md](web/README.md).
+- `ios/` — an earlier native SwiftUI iOS prototype, superseded by the PWA (kept for
+  reference; safe to delete).
+
+## iOS app (superseded prototype)
+
+> The PWA in `web/` replaced this — it runs on iPhone (installable from Safari),
+> Android, and desktop, and adds cross-device sync. The native app remains
+> functional if you ever want it.
+
+`ios/BiblePlanner.xcodeproj` is a SwiftUI app (iOS 17+, iPhone & iPad) that bundles
+`plan.json` and provides:
+
+- **Today** — the current day's four readings with per-track checkmarks, plus the
+  day's theme and five study questions. First launch asks for a start date and a
+  starting day (begin at Day 1 or jump in anywhere — the schedule shifts to match).
+  If you fall behind, a banner offers **Catch Me Up** (YouVersion-style): it shifts
+  the schedule so today becomes your first unfinished day.
+- **Reader** — tap any passage to read it in an in-app reader (loads the passage on
+  BibleGateway in reader mode; internet required). Six translations: TLV, ESV, NASB,
+  KJV, NKJV, NIV. Your preferred translation is a Settings choice; long-press a
+  passage to open it in any other translation. (Translation text is licensed, so it
+  streams from BibleGateway rather than shipping inside the app.)
+- **Plan** — a browsable, searchable list of all 365 days with completion indicators
+  and a "Today" jump button.
+- **Settings** — overall progress stats, translation choice, start date / start day
+  adjustment, Catch Me Up, a progress reset, and appearance options: six accent
+  themes, font style (System / Serif / Rounded / Monospaced), text size (S–XL), and
+  light/dark/system color scheme.
+
+Reading progress, the schedule, translation, and appearance choices all persist
+locally in `UserDefaults`. Open the
+project in Xcode (16 or later) and run, or build from the command line:
+
+```
+xcodebuild -project ios/BiblePlanner.xcodeproj -scheme BiblePlanner \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+```
+
+Note: `ios/BiblePlanner/plan.json` is a bundled copy of `data/plan.json`. If you
+edit the plan data, re-copy it: `cp data/plan.json ios/BiblePlanner/plan.json`.
 
 ## Structure
 
