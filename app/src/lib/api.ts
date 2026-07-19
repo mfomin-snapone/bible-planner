@@ -105,10 +105,10 @@ export function searchUsers(q: string) {
 
 // ─── Groups ───────────────────────────────────────────────────────────────────
 
-export function createGroup(name: string, description: string, planStartDate?: string, planStartDay?: number) {
+export function createGroup(name: string, description: string, planStartDate?: string, planStartDay?: number, icon?: string) {
   return request<{ id: string; name: string; inviteCode: string; channelId: string }>("/api/groups", {
     method: "POST",
-    body: JSON.stringify({ name, description, planStartDate, planStartDay }),
+    body: JSON.stringify({ name, description, planStartDate, planStartDay, icon }),
   });
 }
 
@@ -120,11 +120,41 @@ export function getGroup(id: string) {
   return request<Group & { members: GroupMember[] }>(`/api/groups/${encodeURIComponent(id)}`);
 }
 
-export function updateGroup(id: string, patch: Partial<Pick<Group, "name" | "description" | "planStartDate" | "planStartDay">>) {
+export function updateGroup(id: string, patch: Partial<Pick<Group, "name" | "description" | "planStartDate" | "planStartDay" | "icon">>) {
   return request<{ ok: boolean }>(`/api/groups/${encodeURIComponent(id)}`, {
     method: "PUT",
     body: JSON.stringify(patch),
   });
+}
+
+export function deleteGroup(id: string) {
+  return request<{ ok: boolean }>(`/api/groups/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function leaveGroup(id: string) {
+  return request<{ ok: boolean; groupDeleted: boolean }>(`/api/groups/${encodeURIComponent(id)}/leave`, { method: "POST" });
+}
+
+export function removeGroupMember(groupId: string, userId: string) {
+  return request<{ ok: boolean }>(`/api/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`, { method: "DELETE" });
+}
+
+export function setGroupMemberRole(groupId: string, userId: string, role: "admin" | "member") {
+  return request<{ ok: boolean }>(`/api/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}/role`, {
+    method: "PATCH",
+    body: JSON.stringify({ role }),
+  });
+}
+
+export function setInviteSettings(groupId: string, expiresInMs: number | null, maxUses: number | null) {
+  return request<{ ok: boolean; inviteExpiresAt: number | null; inviteMaxUses: number | null }>(
+    `/api/groups/${encodeURIComponent(groupId)}/invite`,
+    { method: "PUT", body: JSON.stringify({ expiresInMs, maxUses }) },
+  );
+}
+
+export function regenerateInviteCode(groupId: string) {
+  return request<{ inviteCode: string }>(`/api/groups/${encodeURIComponent(groupId)}/invite/regenerate`, { method: "POST" });
 }
 
 export function lookupInviteCode(code: string) {
@@ -211,6 +241,10 @@ export function updateThread(threadId: string, patch: { name?: string; emoji?: s
     method: "PUT",
     body: JSON.stringify(patch),
   });
+}
+
+export function deleteThread(threadId: string) {
+  return request<{ ok: boolean }>(`/api/threads/${encodeURIComponent(threadId)}`, { method: "DELETE" });
 }
 
 // ─── Notifications ────────────────────────────────────────────────────────────

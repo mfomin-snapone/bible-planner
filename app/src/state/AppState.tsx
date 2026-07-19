@@ -34,21 +34,36 @@ const STATE_KEY = "bible-planner:state";
 const SKIP_AUTH_KEY = "bible-planner:skip-auth";
 
 /**
- * Progress keys used to be un-scoped ("day:track"); they're now scoped per
- * plan template ("templateId::day::track") so switching plans doesn't mix up
- * progress between them. Old-format keys belonged to whatever template was
- * active, so they migrate into that template's namespace instead of vanishing.
- * Applied to every path that can bring a `PlanState` blob into memory — the
- * initial local load, and both server-sync reconciliation points below.
+ * Progress/answers/custom-questions used to be un-scoped (e.g. "day:track",
+ * "day:q:idx", or a plain day number); they're now scoped per plan template
+ * ("templateId::...") so switching plans doesn't mix up data between them.
+ * Old-format entries belonged to whatever template was active, so they
+ * migrate into that template's namespace instead of vanishing. Applied to
+ * every path that can bring a `PlanState` blob into memory — the initial
+ * local load, and both server-sync reconciliation points below.
  */
 function migrateState(raw: PlanState): PlanState {
   const templateId = raw.settings?.planTemplateId ?? DEFAULT_SETTINGS.planTemplateId;
   const progress = Array.isArray(raw.progress) ? raw.progress : [];
+  const answers = raw.answers && typeof raw.answers === "object" ? raw.answers : {};
+  const customQuestions = raw.customQuestions && typeof raw.customQuestions === "object" ? raw.customQuestions : {};
+
+  const migratedAnswers: Record<string, string> = {};
+  for (const [key, value] of Object.entries(answers)) {
+    migratedAnswers[key.includes("::") ? key : `${templateId}::${key}`] = value;
+  }
+  const migratedCustomQuestions: Record<string, string[]> = {};
+  for (const [key, value] of Object.entries(customQuestions)) {
+    migratedCustomQuestions[key.includes("::") ? key : `${templateId}::${key}`] = value;
+  }
+
   return {
     ...raw,
     progress: progress.map((key) =>
       typeof key === "string" && !key.includes("::") ? `${templateId}::${key}` : key,
     ),
+    answers: migratedAnswers,
+    customQuestions: migratedCustomQuestions,
   };
 }
 
@@ -93,7 +108,7 @@ interface AppStateValue {
   toggleProgress: (day: number, track: Track) => void;
   /** Update a study-question answer. key = `"day:questionIndex"`. */
   updateAnswer: (key: string, html: string) => void;
-  customQuestions: Record<number, string[]>;
+  customQuestions: Record<string, string[]>;
   addCustomQuestion: (day: number, text: string) => void;
   removeCustomQuestion: (day: number, idx: number) => void;
   resetProgress: () => void;
@@ -294,10 +309,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const addCustomQuestion = useCallback(
     (day: number, text: string) => {
       mutate((prev) => {
-        const existing = prev.customQuestions?.[day] ?? [];
+        const key = `${prev.settings.planTemplateId}::${day}`;
+        const existing = prev.customQuestions?.[key] ?? [];
         return {
           ...prev,
-          customQuestions: { ...(prev.customQuestions ?? {}), [day]: [...existing, text] },
+          customQuestions: { ...(prev.customQuestions ?? {}), [key]: [...existing, text] },
         };
       });
     },
@@ -307,11 +323,12 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const removeCustomQuestion = useCallback(
     (day: number, idx: number) => {
       mutate((prev) => {
-        const existing = [...(prev.customQuestions?.[day] ?? [])];
+        const key = `${prev.settings.planTemplateId}::${day}`;
+        const existing = [...(prev.customQuestions?.[key] ?? [])];
         existing.splice(idx, 1);
         return {
           ...prev,
-          customQuestions: { ...(prev.customQuestions ?? {}), [day]: existing },
+          customQuestions: { ...(prev.customQuestions ?? {}), [key]: existing },
         };
       });
     },

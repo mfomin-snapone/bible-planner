@@ -214,15 +214,15 @@ function randomCode(len = 8) {
 
 app.post("/api/groups", requireAuth, async (req, res) => {
   try {
-    const { name, description = "", planStartDate, planStartDay = 1 } = req.body ?? {};
+    const { name, description = "", planStartDate, planStartDay = 1, icon } = req.body ?? {};
     if (!name || typeof name !== "string") return res.status(400).json({ error: "name required" });
     const id = crypto.randomUUID();
     const code = randomCode(8);
     const now = Date.now();
     await db.execute({
-      sql: `INSERT INTO groups_data (id, name, description, created_by, plan_start_date, plan_start_day, invite_code, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [id, name.slice(0, 80), description.slice(0, 300), req.userId, planStartDate ?? null, planStartDay, code, now],
+      sql: `INSERT INTO groups_data (id, name, description, created_by, plan_start_date, plan_start_day, invite_code, icon, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [id, name.slice(0, 80), description.slice(0, 300), req.userId, planStartDate ?? null, planStartDay, code, icon ?? null, now],
     });
     await db.execute({
       sql: "INSERT INTO group_members (group_id, user_id, role, joined_at) VALUES (?, ?, 'admin', ?)",
@@ -245,7 +245,7 @@ app.get("/api/groups", requireAuth, async (req, res) => {
   try {
     const { rows } = await db.execute({
       sql: `SELECT g.id, g.name, g.description, g.plan_start_date, g.plan_start_day,
-                   g.invite_code, gm.role,
+                   g.invite_code, g.icon, gm.role,
                    (SELECT id FROM channels WHERE group_id = g.id LIMIT 1) as channel_id
             FROM groups_data g
             JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = ?
@@ -256,6 +256,7 @@ app.get("/api/groups", requireAuth, async (req, res) => {
       id: String(r.id), name: String(r.name), description: String(r.description),
       planStartDate: r.plan_start_date ? String(r.plan_start_date) : null,
       planStartDay: Number(r.plan_start_day), inviteCode: String(r.invite_code),
+      icon: r.icon ? String(r.icon) : null,
       role: String(r.role), channelId: r.channel_id ? String(r.channel_id) : null,
     })) });
   } catch (err) {
@@ -266,11 +267,15 @@ app.get("/api/groups", requireAuth, async (req, res) => {
 app.get("/api/groups/invite/:code", async (req, res) => {
   try {
     const { rows } = await db.execute({
-      sql: "SELECT id, name, description FROM groups_data WHERE invite_code = ?",
+      sql: "SELECT id, name, description, invite_expires_at, invite_max_uses, invite_use_count FROM groups_data WHERE invite_code = ?",
       args: [req.params.code.toUpperCase()],
     });
     if (!rows[0]) return res.status(404).json({ error: "Invalid invite code." });
-    res.json({ id: String(rows[0].id), name: String(rows[0].name), description: String(rows[0].description) });
+    const g = rows[0];
+    const expired = g.invite_expires_at ? Date.now() > Number(g.invite_expires_at) : false;
+    const usedUp = g.invite_max_uses != null ? Number(g.invite_use_count) >= Number(g.invite_max_uses) : false;
+    if (expired || usedUp) return res.status(410).json({ error: expired ? "This invite link has expired." : "This invite link has reached its use limit." });
+    res.json({ id: String(g.id), name: String(g.name), description: String(g.description) });
   } catch (err) {
     res.status(500).json({ error: "Unable to look up invite." });
   }
@@ -279,20 +284,26 @@ app.get("/api/groups/invite/:code", async (req, res) => {
 app.post("/api/groups/join/:code", requireAuth, async (req, res) => {
   try {
     const { rows } = await db.execute({
-      sql: "SELECT id FROM groups_data WHERE invite_code = ?",
+      sql: "SELECT id, invite_expires_at, invite_max_uses, invite_use_count FROM groups_data WHERE invite_code = ?",
       args: [req.params.code.toUpperCase()],
     });
     if (!rows[0]) return res.status(404).json({ error: "Invalid invite code." });
-    const groupId = String(rows[0].id);
+    const groupRow = rows[0];
+    const groupId = String(groupRow.id);
     const existing = await db.execute({
       sql: "SELECT user_id FROM group_members WHERE group_id = ? AND user_id = ?",
       args: [groupId, req.userId],
     });
     if (existing.rows.length > 0) return res.json({ groupId, alreadyMember: true });
+    const expired = groupRow.invite_expires_at ? Date.now() > Number(groupRow.invite_expires_at) : false;
+    const usedUp = groupRow.invite_max_uses != null ? Number(groupRow.invite_use_count) >= Number(groupRow.invite_max_uses) : false;
+    if (expired) return res.status(410).json({ error: "This invite link has expired." });
+    if (usedUp) return res.status(410).json({ error: "This invite link has reached its use limit." });
     await db.execute({
       sql: "INSERT INTO group_members (group_id, user_id, role, joined_at) VALUES (?, ?, 'member', ?)",
       args: [groupId, req.userId, Date.now()],
     });
+    await db.execute({ sql: "UPDATE groups_data SET invite_use_count = invite_use_count + 1 WHERE id = ?", args: [groupId] });
     // Notify group members
     const { rows: members } = await db.execute({
       sql: "SELECT user_id FROM group_members WHERE group_id = ? AND user_id != ?",
@@ -331,6 +342,10 @@ app.get("/api/groups/:id", requireAuth, async (req, res) => {
       id: String(g.id), name: String(g.name), description: String(g.description),
       planStartDate: g.plan_start_date ? String(g.plan_start_date) : null,
       planStartDay: Number(g.plan_start_day), inviteCode: String(g.invite_code),
+      icon: g.icon ? String(g.icon) : null,
+      inviteExpiresAt: g.invite_expires_at != null ? Number(g.invite_expires_at) : null,
+      inviteMaxUses: g.invite_max_uses != null ? Number(g.invite_max_uses) : null,
+      inviteUseCount: Number(g.invite_use_count ?? 0),
       role: String(membership.rows[0].role),
       channelId: channelRow.rows[0] ? String(channelRow.rows[0].id) : null,
       members: members.map((m) => ({ id: String(m.user_id), username: String(m.username), role: String(m.role) })),
@@ -348,12 +363,13 @@ app.put("/api/groups/:id", requireAuth, async (req, res) => {
       args: [gid, req.userId],
     });
     if (String(role.rows[0]?.role) !== "admin") return res.status(403).json({ error: "Admin only." });
-    const { name, description, planStartDate, planStartDay } = req.body ?? {};
+    const { name, description, planStartDate, planStartDay, icon } = req.body ?? {};
     await db.execute({
       sql: `UPDATE groups_data SET name = COALESCE(?, name), description = COALESCE(?, description),
-            plan_start_date = COALESCE(?, plan_start_date), plan_start_day = COALESCE(?, plan_start_day)
+            plan_start_date = COALESCE(?, plan_start_date), plan_start_day = COALESCE(?, plan_start_day),
+            icon = COALESCE(?, icon)
             WHERE id = ?`,
-      args: [name ?? null, description ?? null, planStartDate ?? null, planStartDay ?? null, gid],
+      args: [name ?? null, description ?? null, planStartDate ?? null, planStartDay ?? null, icon ?? null, gid],
     });
     // Notify members of plan update
     const { rows: members } = await db.execute({
@@ -363,6 +379,160 @@ app.put("/api/groups/:id", requireAuth, async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: "Unable to update group." });
+  }
+});
+
+/** Deletes a group and everything under it: messages in its channels/threads, threads, channels, memberships. */
+async function deleteGroupCascade(gid) {
+  const { rows: channelRows } = await db.execute({ sql: "SELECT id FROM channels WHERE group_id = ?", args: [gid] });
+  for (const c of channelRows) {
+    await db.execute({ sql: "DELETE FROM messages WHERE channel_id = ?", args: [String(c.id)] });
+  }
+  await db.execute({ sql: "DELETE FROM threads WHERE group_id = ?", args: [gid] });
+  await db.execute({ sql: "DELETE FROM channels WHERE group_id = ?", args: [gid] });
+  await db.execute({ sql: "DELETE FROM group_members WHERE group_id = ?", args: [gid] });
+  await db.execute({ sql: "DELETE FROM groups_data WHERE id = ?", args: [gid] });
+}
+
+app.delete("/api/groups/:id", requireAuth, async (req, res) => {
+  try {
+    const gid = req.params.id;
+    const role = await db.execute({
+      sql: "SELECT role FROM group_members WHERE group_id = ? AND user_id = ?",
+      args: [gid, req.userId],
+    });
+    if (String(role.rows[0]?.role) !== "admin") return res.status(403).json({ error: "Admin only." });
+    const { rows: members } = await db.execute({ sql: "SELECT user_id FROM group_members WHERE group_id = ?", args: [gid] });
+    await deleteGroupCascade(gid);
+    for (const m of members) pushToUser(String(m.user_id), "group:deleted", { groupId: gid });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[groups:delete]", err);
+    res.status(500).json({ error: "Unable to delete group." });
+  }
+});
+
+app.post("/api/groups/:id/leave", requireAuth, async (req, res) => {
+  try {
+    const gid = req.params.id;
+    const my = await db.execute({
+      sql: "SELECT role FROM group_members WHERE group_id = ? AND user_id = ?",
+      args: [gid, req.userId],
+    });
+    if (!my.rows[0]) return res.status(404).json({ error: "Not a member." });
+    const { rows: allMembers } = await db.execute({ sql: "SELECT user_id, role, joined_at FROM group_members WHERE group_id = ?", args: [gid] });
+    const others = allMembers.filter((m) => String(m.user_id) !== req.userId);
+
+    if (others.length === 0) {
+      await deleteGroupCascade(gid);
+      return res.json({ ok: true, groupDeleted: true });
+    }
+
+    if (String(my.rows[0].role) === "admin") {
+      const remainingAdmins = others.filter((m) => String(m.role) === "admin");
+      if (remainingAdmins.length === 0) {
+        const nextAdmin = [...others].sort((a, b) => Number(a.joined_at) - Number(b.joined_at))[0];
+        await db.execute({ sql: "UPDATE group_members SET role = 'admin' WHERE group_id = ? AND user_id = ?", args: [gid, String(nextAdmin.user_id)] });
+      }
+    }
+    await db.execute({ sql: "DELETE FROM group_members WHERE group_id = ? AND user_id = ?", args: [gid, req.userId] });
+    for (const m of others) pushToUser(String(m.user_id), "group:member_left", { groupId: gid, userId: req.userId });
+    res.json({ ok: true, groupDeleted: false });
+  } catch (err) {
+    console.error("[groups:leave]", err);
+    res.status(500).json({ error: "Unable to leave group." });
+  }
+});
+
+app.delete("/api/groups/:id/members/:userId", requireAuth, async (req, res) => {
+  try {
+    const gid = req.params.id;
+    const targetId = req.params.userId;
+    if (targetId === req.userId) return res.status(400).json({ error: "Use leave instead of removing yourself." });
+    const role = await db.execute({
+      sql: "SELECT role FROM group_members WHERE group_id = ? AND user_id = ?",
+      args: [gid, req.userId],
+    });
+    if (String(role.rows[0]?.role) !== "admin") return res.status(403).json({ error: "Admin only." });
+    const target = await db.execute({
+      sql: "SELECT role FROM group_members WHERE group_id = ? AND user_id = ?",
+      args: [gid, targetId],
+    });
+    if (!target.rows[0]) return res.status(404).json({ error: "Member not found." });
+    if (String(target.rows[0].role) === "admin") return res.status(400).json({ error: "Demote this admin before removing them." });
+    await db.execute({ sql: "DELETE FROM group_members WHERE group_id = ? AND user_id = ?", args: [gid, targetId] });
+    pushToUser(targetId, "group:removed", { groupId: gid });
+    const { rows: members } = await db.execute({ sql: "SELECT user_id FROM group_members WHERE group_id = ?", args: [gid] });
+    for (const m of members) pushToUser(String(m.user_id), "group:member_left", { groupId: gid, userId: targetId });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: "Unable to remove member." });
+  }
+});
+
+app.patch("/api/groups/:id/members/:userId/role", requireAuth, async (req, res) => {
+  try {
+    const gid = req.params.id;
+    const targetId = req.params.userId;
+    const role = await db.execute({
+      sql: "SELECT role FROM group_members WHERE group_id = ? AND user_id = ?",
+      args: [gid, req.userId],
+    });
+    if (String(role.rows[0]?.role) !== "admin") return res.status(403).json({ error: "Admin only." });
+    const { role: newRole } = req.body ?? {};
+    if (newRole !== "admin" && newRole !== "member") return res.status(400).json({ error: "Invalid role." });
+    const target = await db.execute({
+      sql: "SELECT role FROM group_members WHERE group_id = ? AND user_id = ?",
+      args: [gid, targetId],
+    });
+    if (!target.rows[0]) return res.status(404).json({ error: "Member not found." });
+    if (newRole === "member" && String(target.rows[0].role) === "admin") {
+      const { rows: admins } = await db.execute({ sql: "SELECT user_id FROM group_members WHERE group_id = ? AND role = 'admin'", args: [gid] });
+      if (admins.length <= 1) return res.status(400).json({ error: "Promote another admin before demoting the last one." });
+    }
+    await db.execute({ sql: "UPDATE group_members SET role = ? WHERE group_id = ? AND user_id = ?", args: [newRole, gid, targetId] });
+    const { rows: members } = await db.execute({ sql: "SELECT user_id FROM group_members WHERE group_id = ?", args: [gid] });
+    for (const m of members) pushToUser(String(m.user_id), "group:member_role_changed", { groupId: gid, userId: targetId, role: newRole });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: "Unable to change role." });
+  }
+});
+
+app.put("/api/groups/:id/invite", requireAuth, async (req, res) => {
+  try {
+    const gid = req.params.id;
+    const role = await db.execute({
+      sql: "SELECT role FROM group_members WHERE group_id = ? AND user_id = ?",
+      args: [gid, req.userId],
+    });
+    if (String(role.rows[0]?.role) !== "admin") return res.status(403).json({ error: "Admin only." });
+    const { expiresInMs, maxUses } = req.body ?? {};
+    const expiresAt = typeof expiresInMs === "number" && expiresInMs > 0 ? Date.now() + expiresInMs : null;
+    const cappedUses = typeof maxUses === "number" && maxUses > 0 ? Math.floor(maxUses) : null;
+    await db.execute({
+      sql: "UPDATE groups_data SET invite_expires_at = ?, invite_max_uses = ? WHERE id = ?",
+      args: [expiresAt, cappedUses, gid],
+    });
+    res.json({ ok: true, inviteExpiresAt: expiresAt, inviteMaxUses: cappedUses });
+  } catch (err) {
+    res.status(500).json({ error: "Unable to update invite settings." });
+  }
+});
+
+app.post("/api/groups/:id/invite/regenerate", requireAuth, async (req, res) => {
+  try {
+    const gid = req.params.id;
+    const role = await db.execute({
+      sql: "SELECT role FROM group_members WHERE group_id = ? AND user_id = ?",
+      args: [gid, req.userId],
+    });
+    if (String(role.rows[0]?.role) !== "admin") return res.status(403).json({ error: "Admin only." });
+    const code = randomCode(8);
+    await db.execute({ sql: "UPDATE groups_data SET invite_code = ?, invite_use_count = 0 WHERE id = ?", args: [code, gid] });
+    res.json({ inviteCode: code });
+  } catch (err) {
+    res.status(500).json({ error: "Unable to regenerate invite code." });
   }
 });
 
@@ -685,14 +855,39 @@ app.post("/api/groups/:id/threads", requireAuth, async (req, res) => {
 app.put("/api/threads/:id", requireAuth, async (req, res) => {
   try {
     const { rows } = await db.execute({
-      sql: "SELECT t.group_id FROM threads t JOIN group_members gm ON gm.group_id = t.group_id AND gm.user_id = ? WHERE t.id = ?",
+      sql: "SELECT t.group_id, t.created_by, gm.role FROM threads t JOIN group_members gm ON gm.group_id = t.group_id AND gm.user_id = ? WHERE t.id = ?",
       args: [req.userId, req.params.id],
     });
     if (!rows[0]) return res.status(403).json({ error: "Not a member or thread not found." });
+    const canManage = String(rows[0].created_by) === req.userId || String(rows[0].role) === "admin";
+    if (!canManage) return res.status(403).json({ error: "Only the thread creator or a group admin can edit this thread." });
+    const gid = rows[0].group_id;
     const { name, emoji } = req.body ?? {};
     await db.execute({ sql: "UPDATE threads SET name = COALESCE(?, name), emoji = COALESCE(?, emoji) WHERE id = ?", args: [name ?? null, emoji ?? null, req.params.id] });
+    const { rows: members } = await db.execute({ sql: "SELECT user_id FROM group_members WHERE group_id = ?", args: [gid] });
+    for (const m of members) pushToUser(String(m.user_id), "thread:update", { groupId: gid, threadId: req.params.id, name, emoji });
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: "Unable to update thread." }); }
+});
+
+app.delete("/api/threads/:id", requireAuth, async (req, res) => {
+  try {
+    const { rows } = await db.execute({
+      sql: "SELECT t.group_id, t.channel_id, t.created_by, gm.role FROM threads t JOIN group_members gm ON gm.group_id = t.group_id AND gm.user_id = ? WHERE t.id = ?",
+      args: [req.userId, req.params.id],
+    });
+    if (!rows[0]) return res.status(403).json({ error: "Not a member or thread not found." });
+    const canManage = String(rows[0].created_by) === req.userId || String(rows[0].role) === "admin";
+    if (!canManage) return res.status(403).json({ error: "Only the thread creator or a group admin can delete this thread." });
+    const gid = rows[0].group_id;
+    const cid = rows[0].channel_id;
+    await db.execute({ sql: "DELETE FROM messages WHERE channel_id = ?", args: [cid] });
+    await db.execute({ sql: "DELETE FROM threads WHERE id = ?", args: [req.params.id] });
+    await db.execute({ sql: "DELETE FROM channels WHERE id = ?", args: [cid] });
+    const { rows: members } = await db.execute({ sql: "SELECT user_id FROM group_members WHERE group_id = ?", args: [gid] });
+    for (const m of members) pushToUser(String(m.user_id), "thread:deleted", { groupId: gid, threadId: req.params.id });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: "Unable to delete thread." }); }
 });
 
 // ─── Notifications ────────────────────────────────────────────────────────────

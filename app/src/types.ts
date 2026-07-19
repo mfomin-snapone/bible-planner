@@ -105,12 +105,12 @@ export interface Settings {
 
 export interface PlanState {
   settings: Settings;
-  /** Completed readings as "day:track" keys. */
+  /** Completed readings, scoped per plan template: "templateId::day::track". */
   progress: string[];
-  /** Study question answers keyed by "day:questionIndex" → sanitized HTML. */
+  /** Study question answers, scoped per plan template: "templateId::day:q:idx" → sanitized HTML. */
   answers: Record<string, string>;
-  /** User-added custom study questions per plan day, keyed by day number. */
-  customQuestions: Record<number, string[]>;
+  /** User-added custom study questions, scoped per plan template: "templateId::day". */
+  customQuestions: Record<string, string[]>;
   /** Milliseconds since epoch; versions the whole blob for sync. */
   updatedAt: number;
 }
@@ -150,10 +150,17 @@ export interface Group {
   id: string;
   name: string;
   description: string;
+  /** Emoji shown as the group's icon; falls back to the name's first letter when unset. */
+  icon?: string | null;
   planStartDate: string | null;
   /** Plan day number that corresponds to planStartDate. */
   planStartDay: number;
   inviteCode: string;
+  /** Milliseconds-since-epoch the invite code stops working, or null for never. */
+  inviteExpiresAt?: number | null;
+  /** Max number of times the invite code can be redeemed, or null for unlimited. */
+  inviteMaxUses?: number | null;
+  inviteUseCount?: number;
   /** The current user's role in this group. */
   role: "admin" | "member";
   /** The main group chat channel id. */

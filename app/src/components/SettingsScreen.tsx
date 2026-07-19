@@ -11,6 +11,7 @@ import { updateProfile } from "../lib/api";
 import { PLAN_TEMPLATES } from "../lib/planTemplates";
 import { CustomPlanBuilderSheet } from "./CustomPlanBuilder";
 import { DayNumberInput } from "./DayNumberInput";
+import { buildAnswersExport, downloadTextFile } from "../lib/exportAnswers";
 
 export function SettingsScreen() {
   const { plan, settings, progress, updateSettings, resetProgress } = useAppState();
@@ -163,6 +164,7 @@ export function SettingsScreen() {
 
       <RemindersCard />
       <PlanTemplateCard />
+      <ExportAnswersCard />
 
       <div className="section-label">Account & Sync</div>
       <AccountCard />
@@ -386,6 +388,58 @@ function PlanTemplateCard() {
           }}
         />
       )}
+    </>
+  );
+}
+
+function ExportAnswersCard() {
+  const { settings, answers, customQuestions } = useAppState();
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const hasAnyAnswers = Object.keys(answers).length > 0 || Object.keys(customQuestions).length > 0;
+
+  return (
+    <>
+      <div className="section-label">Your Data</div>
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          <div>
+            <div style={{ fontWeight: 600, color: "var(--text-h)" }}>Export study answers</div>
+            <div className="small muted">
+              Every answer and custom question you've written, across every plan you've used.
+            </div>
+          </div>
+          <button
+            className="btn btn-secondary"
+            style={{ whiteSpace: "nowrap" }}
+            disabled={busy || !hasAnyAnswers}
+            onClick={async () => {
+              setBusy(true);
+              setDone(false);
+              try {
+                const text = await buildAnswersExport({ settings, answers, customQuestions });
+                downloadTextFile(`shema-study-answers-${new Date().toISOString().slice(0, 10)}.txt`, text);
+                setDone(true);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? "Exporting…" : "Export"}
+          </button>
+        </div>
+        {!hasAnyAnswers && (
+          <p className="small muted" style={{ margin: "8px 0 0" }}>
+            You haven't written any study answers yet.
+          </p>
+        )}
+        {done && (
+          <p className="small" style={{ margin: "8px 0 0", color: "var(--success)" }}>
+            Downloaded.
+          </p>
+        )}
+      </div>
     </>
   );
 }

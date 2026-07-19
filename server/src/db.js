@@ -147,6 +147,10 @@ const MIGRATIONS = [
   `ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT 'default'`,
   `ALTER TABLE users ADD COLUMN birth_date TEXT`,
   `ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0`,
+  `ALTER TABLE groups_data ADD COLUMN icon TEXT`,
+  `ALTER TABLE groups_data ADD COLUMN invite_expires_at INTEGER`,
+  `ALTER TABLE groups_data ADD COLUMN invite_max_uses INTEGER`,
+  `ALTER TABLE groups_data ADD COLUMN invite_use_count INTEGER DEFAULT 0`,
 ];
 for (const sql of MIGRATIONS) {
   await db.execute(sql).catch(() => {}); // ignore "duplicate column" errors

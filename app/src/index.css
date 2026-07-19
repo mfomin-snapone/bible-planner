@@ -386,8 +386,15 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   gap: 12px;
   width: 100%;
   text-align: left;
-  padding: 11px 4px;
+  padding: 11px 4px 11px 12px;
   border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+.plan-row.today {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  border-left-color: var(--accent);
+  border-radius: 8px;
 }
 .plan-row-title { font-weight: 600; color: var(--text-h); font-size: 0.95rem; }
 .plan-row-sub { font-size: 0.8rem; color: var(--text-muted); }
@@ -1197,7 +1204,12 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   cursor: pointer;
   padding: 3px 8px;
   border-radius: 6px;
+  white-space: nowrap;
 }
+.groups-text-btn:hover { background: var(--accent-bg); }
+.groups-text-btn:disabled { opacity: 0.5; cursor: default; }
+.groups-text-btn-danger { color: var(--danger); }
+.groups-text-btn-danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
 .groups-preview-card {
   margin: 0 16px;
   padding: 16px;
@@ -1231,6 +1243,8 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   border-radius: 6px;
   border: 1px solid var(--border);
 }
+.groups-invite-code-row { display: flex; align-items: center; gap: 10px; }
+.settings-divider { border: none; border-top: 1px solid var(--border); margin: 18px 0 14px; }
 /* Kept for legacy compat (no longer renders) */
 .groups-chat-btn { display: none; }
 
@@ -1608,8 +1622,33 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 /* ─── Threads ─────────────────────────────────────────────────────────────── */
 .groups-section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .groups-empty-text { font-size: 0.85rem; color: var(--text-muted); margin: 8px 0; }
-.thread-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.thread-row { display: flex; align-items: center; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.thread-row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 2px;
+}
 .thread-emoji-badge { font-size: 1.3rem; width: 36px; text-align: center; flex-shrink: 0; }
+.thread-edit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+.thread-edit-btn:hover { background: var(--accent-bg); color: var(--accent); }
+.thread-edit-btn svg { width: 15px; height: 15px; }
 
 /* ─── New Thread Modal ────────────────────────────────────────────────────── */
 .thread-modal-backdrop {

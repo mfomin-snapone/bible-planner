@@ -51,6 +51,7 @@ export function DayCard({ day }: { day: PlanDay }) {
     ? getHebrewDateInfo(date.getFullYear(), date.getMonth() + 1, date.getDate())
     : null;
   const dayComplete = isDayComplete(progress, settings.planTemplateId, day.day);
+  const customQKey = `${settings.planTemplateId}::${day.day}`;
 
   return (
     <>
@@ -132,7 +133,7 @@ export function DayCard({ day }: { day: PlanDay }) {
       <div className="card" style={{ paddingTop: 6, paddingBottom: 6 }}>
         {day.questions.map((question, idx) => {
           const Icon = QUESTION_ICONS[question.type] ?? ChatIcon;
-          const answerKey = `${day.day}:q:${idx}`;
+          const answerKey = `${settings.planTemplateId}::${day.day}:q:${idx}`;
           return (
             <div className="question" key={question.type + question.text.slice(0, 12)}>
               <div className="question-label">
@@ -204,10 +205,10 @@ export function DayCard({ day }: { day: PlanDay }) {
         </div>
       )}
 
-      {(customQuestions[day.day] ?? []).length > 0 && (
+      {(customQuestions[customQKey] ?? []).length > 0 && (
         <div className="card" style={{ paddingTop: 6, paddingBottom: 6 }}>
-          {(customQuestions[day.day] ?? []).map((qText, idx) => {
-            const answerKey = `${day.day}:cq:${idx}`;
+          {(customQuestions[customQKey] ?? []).map((qText, idx) => {
+            const answerKey = `${settings.planTemplateId}::${day.day}:cq:${idx}`;
             return (
               <div className="question" key={idx}>
                 <div className="question-label" style={{ justifyContent: "space-between" }}>

@@ -2,10 +2,12 @@ import { useEffect, useState, useCallback } from "react";
 import type { Group, GroupMember, DmChannel, Thread, AppNotification } from "../types";
 import {
   listGroups, getGroup, createGroup, joinGroup, lookupInviteCode,
-  updateGroup, searchUsers, getOrCreateDM, listDMs,
+  updateGroup, deleteGroup, leaveGroup, removeGroupMember, setGroupMemberRole,
+  setInviteSettings, regenerateInviteCode,
+  searchUsers, getOrCreateDM, listDMs,
   uploadPublicKey as _uploadPublicKey, fetchPublicKey,
   uploadChannelKey, uploadGroupKey,
-  listThreads, createThread,
+  listThreads, createThread, updateThread, deleteThread,
   listNotifications, markNotificationsRead,
 } from "../lib/api";
 import {
@@ -17,6 +19,7 @@ import { useAppState } from "../state/AppState";
 import {
   UsersIcon, PersonAddIcon, MessageCircleIcon,
   ChevronRightIcon, CopyIcon, BellIcon, PencilIcon, GearIcon,
+  TrashIcon, LogOutIcon,
 } from "./icons";
 import ChatView from "./ChatView";
 import { DayNumberInput } from "./DayNumberInput";
@@ -74,6 +77,13 @@ export default function GroupsScreen() {
   useEffect(() => {
     const unsub = realtime.on("thread:new", () => { void reload(); });
     return unsub;
+  }, [reload]);
+
+  // WS: group membership changed elsewhere (removed/left/deleted) — keep the list in sync
+  useEffect(() => {
+    const unsubRemoved = realtime.on("group:removed", () => { void reload(); });
+    const unsubDeleted = realtime.on("group:deleted", () => { void reload(); });
+    return () => { unsubRemoved(); unsubDeleted(); };
   }, [reload]);
 
   if (!user) return (
@@ -216,7 +226,7 @@ export default function GroupsScreen() {
               className="groups-row"
               onClick={() => setView({ kind: "detail", groupId: g.id })}
             >
-              <div className="groups-row-avatar">{g.name.charAt(0).toUpperCase()}</div>
+              <div className="groups-row-avatar">{g.icon || g.name.charAt(0).toUpperCase()}</div>
               <div className="groups-row-info">
                 <span className="groups-row-name">{g.name}</span>
                 <span className="groups-row-sub">{g.role === "admin" ? "Admin" : "Member"}</span>
@@ -271,10 +281,14 @@ export default function GroupsScreen() {
 
 // ─── Create Group ─────────────────────────────────────────────────────────────
 
+const GROUP_EMOJIS = ["📖", "🙏", "✝️", "🕊️", "⭐", "📿", "🌿", "🔥", "💒", "👥", "📚", "🎶", "🌅", "❤️", "🌟", "🗣️", "🌾", "⚡"];
+
 function CreateGroupView({ onBack, onCreate }: { onBack: () => void; onCreate: () => void }) {
   const { settings, user } = useAppState();
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
+  const [icon, setIcon] = useState("📖");
+  const [editingIcon, setEditingIcon] = useState(false);
   const [startDate, setStartDate] = useState(settings.startDate ?? "");
   const [startDay, setStartDay] = useState(settings.startDay);
   const [busy, setBusy] = useState(false);
@@ -286,7 +300,7 @@ function CreateGroupView({ onBack, onCreate }: { onBack: () => void; onCreate: (
     setBusy(true);
     setErr(null);
     try {
-      const result = await createGroup(name.trim(), desc.trim(), startDate || undefined, startDay);
+      const result = await createGroup(name.trim(), desc.trim(), startDate || undefined, startDay, icon);
       // Provision group channel key for the creator
       try {
         const pair = await getOrCreateKeyPair();
@@ -316,7 +330,23 @@ function CreateGroupView({ onBack, onCreate }: { onBack: () => void; onCreate: (
       <form className="groups-form" onSubmit={(e) => void handleSubmit(e)}>
         <label className="groups-label">
           Group name
-          <input className="groups-input" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} placeholder="e.g. Morning Torah Study" />
+          <div className="thread-emoji-row">
+            <button type="button" className="thread-emoji-trigger" onClick={() => setEditingIcon((v) => !v)}>
+              <span className="thread-emoji-big">{icon}</span>
+              <PencilIcon className="thread-emoji-edit-icon" />
+            </button>
+            {editingIcon && (
+              <div className="thread-emoji-picker">
+                {GROUP_EMOJIS.map((e) => (
+                  <button key={e} type="button" className={`thread-emoji-opt ${e === icon ? "selected" : ""}`}
+                    onClick={() => { setIcon(e); setEditingIcon(false); }}>
+                    {e}
+                  </button>
+                ))}
+              </div>
+            )}
+            <input className="groups-input" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} placeholder="e.g. Morning Torah Study" style={{ flex: 1 }} />
+          </div>
         </label>
         <label className="groups-label">
           Description (optional)
@@ -429,6 +459,7 @@ function GroupDetailView({
   const [group, setGroup] = useState<(Group & { members: GroupMember[] }) | null>(null);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [showNewThread, setShowNewThread] = useState(false);
+  const [editingThread, setEditingThread] = useState<Thread | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -462,6 +493,39 @@ function GroupDetailView({
     });
   }, [groupId, group?.role, user, load]);
 
+  useEffect(() => {
+    return realtime.on("thread:update", (data) => {
+      const { groupId: gid, threadId, name, emoji } = data as { groupId: string; threadId: string; name?: string; emoji?: string };
+      if (gid !== groupId) return;
+      setThreads((prev) => prev.map((t) => (t.id === threadId ? { ...t, name: name ?? t.name, emoji: emoji ?? t.emoji } : t)));
+    });
+  }, [groupId]);
+
+  useEffect(() => {
+    return realtime.on("thread:deleted", (data) => {
+      const { groupId: gid, threadId } = data as { groupId: string; threadId: string };
+      if (gid !== groupId) return;
+      setThreads((prev) => prev.filter((t) => t.id !== threadId));
+    });
+  }, [groupId]);
+
+  // WS: member role changed / removed / left — refresh the member list & my own role
+  useEffect(() => {
+    const unsubRole = realtime.on("group:member_role_changed", (data) => {
+      if ((data as { groupId: string }).groupId === groupId) void load();
+    });
+    const unsubLeft = realtime.on("group:member_left", (data) => {
+      if ((data as { groupId: string }).groupId === groupId) void load();
+    });
+    const unsubRemoved = realtime.on("group:removed", (data) => {
+      if ((data as { groupId: string }).groupId === groupId) onBack();
+    });
+    const unsubDeleted = realtime.on("group:deleted", (data) => {
+      if ((data as { groupId: string }).groupId === groupId) { onChanged(); onBack(); }
+    });
+    return () => { unsubRole(); unsubLeft(); unsubRemoved(); unsubDeleted(); };
+  }, [groupId, load, onBack, onChanged]);
+
   async function copyCode() {
     if (!group) return;
     await navigator.clipboard.writeText(group.inviteCode);
@@ -492,7 +556,7 @@ function GroupDetailView({
 
       {/* Hero card */}
       <div className="group-hero-card">
-        <div className="group-hero-avatar">{group.name.charAt(0).toUpperCase()}</div>
+        <div className="group-hero-avatar">{group.icon || group.name.charAt(0).toUpperCase()}</div>
         <div className="group-hero-body">
           <h3 className="group-hero-name">{group.name}</h3>
           {group.description
@@ -555,20 +619,40 @@ function GroupDetailView({
           <p className="groups-empty-text">No threads yet — create one to start a focused discussion.</p>
         )}
         {threads.map((t) => (
-          <button key={t.id} className="groups-row thread-row" onClick={() => onChat(t.channelId, `${t.emoji} ${t.name}`, true, groupId)}>
-            <div className="thread-emoji-badge">{t.emoji}</div>
-            <div className="groups-row-info">
-              <span className="groups-row-name">{t.name}</span>
-              {t.lastMessageAt && <span className="groups-row-sub">{formatRelativeTime(t.lastMessageAt)}</span>}
-            </div>
-            <ChevronRightIcon className="groups-row-chevron" />
-          </button>
+          <div key={t.id} className="groups-row thread-row">
+            <button className="thread-row-main" onClick={() => onChat(t.channelId, `${t.emoji} ${t.name}`, true, groupId)}>
+              <div className="thread-emoji-badge">{t.emoji}</div>
+              <div className="groups-row-info">
+                <span className="groups-row-name">{t.name}</span>
+                {t.lastMessageAt && <span className="groups-row-sub">{formatRelativeTime(t.lastMessageAt)}</span>}
+              </div>
+              <ChevronRightIcon className="groups-row-chevron" />
+            </button>
+            <button className="thread-edit-btn" onClick={() => setEditingThread(t)} aria-label={`Edit ${t.name}`} title="Rename or change icon">
+              <PencilIcon className="q-icon" />
+            </button>
+          </div>
         ))}
         {showNewThread && (
-          <NewThreadModal
+          <ThreadModal
             groupId={groupId}
             onClose={() => setShowNewThread(false)}
-            onCreated={(thread) => { setThreads((prev) => [...prev, thread]); setShowNewThread(false); }}
+            onSaved={(thread) => { setThreads((prev) => [...prev, thread]); setShowNewThread(false); }}
+          />
+        )}
+        {editingThread && (
+          <ThreadModal
+            groupId={groupId}
+            thread={editingThread}
+            onClose={() => setEditingThread(null)}
+            onSaved={(updated) => {
+              setThreads((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+              setEditingThread(null);
+            }}
+            onDeleted={() => {
+              setThreads((prev) => prev.filter((t) => t.id !== editingThread.id));
+              setEditingThread(null);
+            }}
           />
         )}
       </section>
@@ -577,15 +661,23 @@ function GroupDetailView({
       <section className="groups-section">
         <h3 className="groups-section-title">Members ({group.members.length})</h3>
         {group.members.map((m) => (
-          <div key={m.id} className="groups-member-row">
-            <div className="groups-row-avatar">{m.username.charAt(0).toUpperCase()}</div>
-            <span className="groups-member-name">{m.username}</span>
-            <div style={{ display: "flex", gap: 4, marginLeft: "auto" }}>
-              {m.id === user?.id && <span className="groups-member-badge">You</span>}
-              {m.role === "admin" && <span className="groups-member-badge groups-admin-badge">Admin</span>}
-            </div>
-          </div>
+          <MemberRow
+            key={m.id}
+            member={m}
+            isMe={m.id === user?.id}
+            viewerIsAdmin={isAdmin}
+            groupId={groupId}
+            onChanged={load}
+          />
         ))}
+      </section>
+
+      {/* Leave group */}
+      <section className="groups-section">
+        <LeaveGroupControl
+          groupId={groupId}
+          onLeft={() => { onChanged(); onBack(); }}
+        />
       </section>
 
       {/* Admin settings sheet */}
@@ -594,25 +686,155 @@ function GroupDetailView({
           group={group}
           onClose={() => setShowSettings(false)}
           onSaved={() => { void load(); onChanged(); setShowSettings(false); }}
+          onDeleted={() => { onChanged(); onBack(); }}
         />
       )}
     </div>
   );
 }
 
+// ─── Member row (promote/demote/remove) ───────────────────────────────────────
+
+function MemberRow({
+  member, isMe, viewerIsAdmin, groupId, onChanged,
+}: {
+  member: GroupMember;
+  isMe: boolean;
+  viewerIsAdmin: boolean;
+  groupId: string;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const canManage = viewerIsAdmin && !isMe;
+
+  async function toggleRole() {
+    setBusy(true); setErr(null);
+    try {
+      await setGroupMemberRole(groupId, member.id, member.role === "admin" ? "member" : "admin");
+      onChanged();
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Failed to change role.");
+    }
+    setBusy(false);
+  }
+
+  async function remove() {
+    setBusy(true); setErr(null);
+    try {
+      await removeGroupMember(groupId, member.id);
+      onChanged();
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Failed to remove member.");
+      setConfirmingRemove(false);
+    }
+    setBusy(false);
+  }
+
+  return (
+    <div className="groups-member-row" style={{ flexWrap: "wrap" }}>
+      <div className="groups-row-avatar">{member.username.charAt(0).toUpperCase()}</div>
+      <span className="groups-member-name">{member.username}</span>
+      <div style={{ display: "flex", gap: 4, marginLeft: "auto", alignItems: "center" }}>
+        {isMe && <span className="groups-member-badge">You</span>}
+        {member.role === "admin" && <span className="groups-member-badge groups-admin-badge">Admin</span>}
+        {canManage && !confirmingRemove && (
+          <>
+            <button className="groups-text-btn" disabled={busy} onClick={() => void toggleRole()}>
+              {member.role === "admin" ? "Demote" : "Make Admin"}
+            </button>
+            {member.role !== "admin" && (
+              <button className="groups-text-btn groups-text-btn-danger" disabled={busy} onClick={() => setConfirmingRemove(true)}>
+                Remove
+              </button>
+            )}
+          </>
+        )}
+        {canManage && confirmingRemove && (
+          <>
+            <span className="small muted">Remove {member.username}?</span>
+            <button className="groups-text-btn groups-text-btn-danger" disabled={busy} onClick={() => void remove()}>
+              Confirm
+            </button>
+            <button className="groups-text-btn" disabled={busy} onClick={() => setConfirmingRemove(false)}>
+              Cancel
+            </button>
+          </>
+        )}
+      </div>
+      {err && <p className="groups-error" style={{ width: "100%", margin: "4px 0 0" }}>{err}</p>}
+    </div>
+  );
+}
+
+// ─── Leave group ───────────────────────────────────────────────────────────────
+
+function LeaveGroupControl({ groupId, onLeft }: { groupId: string; onLeft: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function handleLeave() {
+    setBusy(true); setErr(null);
+    try {
+      await leaveGroup(groupId);
+      onLeft();
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Failed to leave group.");
+      setBusy(false);
+    }
+  }
+
+  if (confirming) {
+    return (
+      <div className="card" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <span className="small">Leave this group? You'll need a new invite to rejoin.</span>
+        {err && <p className="groups-error" style={{ margin: 0 }}>{err}</p>}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn btn-danger" disabled={busy} onClick={() => void handleLeave()}>
+            {busy ? "Leaving…" : "Leave Group"}
+          </button>
+          <button className="btn btn-secondary" disabled={busy} onClick={() => setConfirming(false)}>Cancel</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <button className="group-action-btn" style={{ color: "var(--danger)" }} onClick={() => setConfirming(true)}>
+      <LogOutIcon className="q-icon" />
+      <span>Leave Group</span>
+    </button>
+  );
+}
+
 function GroupSettingsSheet({
-  group, onClose, onSaved,
+  group, onClose, onSaved, onDeleted,
 }: {
   group: Group & { members: GroupMember[] };
   onClose: () => void;
   onSaved: () => void;
+  onDeleted: () => void;
 }) {
   const [name, setName] = useState(group.name);
+  const [icon, setIcon] = useState(group.icon ?? "📖");
+  const [editingIcon, setEditingIcon] = useState(false);
   const [desc, setDesc] = useState(group.description ?? "");
   const [startDate, setStartDate] = useState(group.planStartDate ?? "");
   const [startDay, setStartDay] = useState(group.planStartDay);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const [inviteCode, setInviteCode] = useState(group.inviteCode);
+  const [inviteExpiresAt, setInviteExpiresAt] = useState(group.inviteExpiresAt ?? null);
+  const [expirySelection, setExpirySelection] = useState(group.inviteExpiresAt ? "custom" : "never");
+  const [inviteMaxUses, setInviteMaxUses] = useState(group.inviteMaxUses ?? null);
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteMsg, setInviteMsg] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -621,6 +843,7 @@ function GroupSettingsSheet({
       await updateGroup(group.id, {
         name: name.trim() || undefined,
         description: desc,
+        icon,
         planStartDate: startDate || undefined,
         planStartDay: startDay,
       });
@@ -631,6 +854,40 @@ function GroupSettingsSheet({
     setBusy(false);
   }
 
+  async function handleRegenerate() {
+    setInviteBusy(true); setInviteMsg(null);
+    try {
+      const { inviteCode: newCode } = await regenerateInviteCode(group.id);
+      setInviteCode(newCode);
+      setInviteMsg("New invite code generated — the old one no longer works.");
+    } catch {
+      setInviteMsg("Failed to regenerate the invite code.");
+    }
+    setInviteBusy(false);
+  }
+
+  async function handleInviteSettingsChange(expiresInMs: number | null, maxUses: number | null) {
+    setInviteBusy(true); setInviteMsg(null);
+    try {
+      const result = await setInviteSettings(group.id, expiresInMs, maxUses);
+      setInviteExpiresAt(result.inviteExpiresAt);
+      setInviteMaxUses(result.inviteMaxUses);
+    } catch {
+      setInviteMsg("Failed to update invite settings.");
+    }
+    setInviteBusy(false);
+  }
+
+  async function handleDelete() {
+    setDeleteBusy(true);
+    try {
+      await deleteGroup(group.id);
+      onDeleted();
+    } catch {
+      setDeleteBusy(false);
+    }
+  }
+
   return (
     <div className="sheet-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="sheet" role="dialog" aria-modal="true" aria-label="Group Settings">
@@ -639,7 +896,23 @@ function GroupSettingsSheet({
         <form onSubmit={(e) => void handleSave(e)}>
           <label className="groups-label">
             Group name
-            <input className="groups-input" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} />
+            <div className="thread-emoji-row">
+              <button type="button" className="thread-emoji-trigger" onClick={() => setEditingIcon((v) => !v)}>
+                <span className="thread-emoji-big">{icon}</span>
+                <PencilIcon className="thread-emoji-edit-icon" />
+              </button>
+              {editingIcon && (
+                <div className="thread-emoji-picker">
+                  {GROUP_EMOJIS.map((e) => (
+                    <button key={e} type="button" className={`thread-emoji-opt ${e === icon ? "selected" : ""}`}
+                      onClick={() => { setIcon(e); setEditingIcon(false); }}>
+                      {e}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <input className="groups-input" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} style={{ flex: 1 }} />
+            </div>
           </label>
           <label className="groups-label" style={{ marginTop: 12 }}>
             Description
@@ -656,48 +929,150 @@ function GroupSettingsSheet({
           <button className="btn btn-block" type="submit" disabled={busy} style={{ marginTop: 16 }}>
             {busy ? "Saving…" : "Save Changes"}
           </button>
-          <button type="button" className="btn btn-secondary btn-block" style={{ marginTop: 8 }} onClick={onClose}>
-            Cancel
-          </button>
         </form>
+
+        <div className="settings-divider" />
+
+        <h4 style={{ margin: "0 0 8px", fontWeight: 700, color: "var(--text-h)", fontSize: "0.9rem" }}>Invite Link</h4>
+        <div className="groups-invite-code-row">
+          <span className="groups-invite-code">{inviteCode}</span>
+          <button type="button" className="groups-text-btn" disabled={inviteBusy} onClick={() => void handleRegenerate()}>
+            Regenerate
+          </button>
+        </div>
+        <label className="groups-label" style={{ marginTop: 10 }}>
+          Expires
+          <select
+            className="groups-input"
+            disabled={inviteBusy}
+            value={expirySelection}
+            onChange={(e) => {
+              const v = e.target.value;
+              setExpirySelection(v);
+              const ms = v === "never" ? null : Number(v);
+              void handleInviteSettingsChange(ms, inviteMaxUses);
+            }}
+          >
+            <option value="never">Never</option>
+            {expirySelection === "custom" && <option value="custom">Custom (already set)</option>}
+            <option value={60 * 60 * 1000}>In 1 hour</option>
+            <option value={24 * 60 * 60 * 1000}>In 1 day</option>
+            <option value={7 * 24 * 60 * 60 * 1000}>In 7 days</option>
+            <option value={30 * 24 * 60 * 60 * 1000}>In 30 days</option>
+          </select>
+        </label>
+        {inviteExpiresAt && (
+          <p className="small muted" style={{ margin: "4px 0 0" }}>
+            Expires {new Date(inviteExpiresAt).toLocaleString()}
+          </p>
+        )}
+        <label className="groups-label" style={{ marginTop: 10 }}>
+          Max uses
+          <select
+            className="groups-input"
+            disabled={inviteBusy}
+            value={inviteMaxUses ?? "unlimited"}
+            onChange={(e) => {
+              const v = e.target.value;
+              void handleInviteSettingsChange(inviteExpiresAt, v === "unlimited" ? null : Number(v));
+            }}
+          >
+            <option value="unlimited">Unlimited</option>
+            <option value={1}>1 use</option>
+            <option value={5}>5 uses</option>
+            <option value={10}>10 uses</option>
+            <option value={25}>25 uses</option>
+          </select>
+        </label>
+        {inviteMaxUses != null && (
+          <p className="small muted" style={{ margin: "4px 0 0" }}>
+            Used {group.inviteUseCount ?? 0} of {inviteMaxUses}
+          </p>
+        )}
+        {inviteMsg && <p className="small" style={{ margin: "6px 0 0", color: "var(--accent)" }}>{inviteMsg}</p>}
+
+        <div className="settings-divider" />
+
+        <h4 style={{ margin: "0 0 8px", fontWeight: 700, color: "var(--danger)", fontSize: "0.9rem" }}>Danger Zone</h4>
+        {confirmDelete ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <span className="small">Delete "{group.name}" permanently? All messages, threads, and membership are lost for everyone. This cannot be undone.</span>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn btn-danger" disabled={deleteBusy} onClick={() => void handleDelete()}>
+                {deleteBusy ? "Deleting…" : "Delete Group"}
+              </button>
+              <button className="btn btn-secondary" disabled={deleteBusy} onClick={() => setConfirmDelete(false)}>Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" className="btn btn-danger btn-block" onClick={() => setConfirmDelete(true)}>
+            <TrashIcon className="q-icon" /> Delete Group
+          </button>
+        )}
+
+        <button type="button" className="btn btn-secondary btn-block" style={{ marginTop: 12 }} onClick={onClose}>
+          Close
+        </button>
       </div>
     </div>
   );
 }
 
-// ─── New Thread Modal ─────────────────────────────────────────────────────────
+// ─── Thread Modal (create or edit) ────────────────────────────────────────────
 
 const THREAD_EMOJIS = ["💬", "📖", "🙏", "❤️", "✝️", "🕊️", "🌟", "💡", "🔥", "📝", "🗣️", "👥", "📌", "🎯", "❓", "🌿", "⚡", "🎵"];
 
-function NewThreadModal({ groupId, onClose, onCreated }: {
+function ThreadModal({ groupId, thread, onClose, onSaved, onDeleted }: {
   groupId: string;
+  /** Omit to create a new thread; pass an existing thread to rename/re-icon it. */
+  thread?: Thread;
   onClose: () => void;
-  onCreated: (thread: Thread) => void;
+  onSaved: (thread: Thread) => void;
+  onDeleted?: () => void;
 }) {
-  const [name, setName] = useState("");
-  const [emoji, setEmoji] = useState("💬");
+  const isEdit = !!thread;
+  const [name, setName] = useState(thread?.name ?? "");
+  const [emoji, setEmoji] = useState(thread?.emoji ?? "💬");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [editingEmoji, setEditingEmoji] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
-  async function handleCreate(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) { setErr("Thread name is required."); return; }
     setBusy(true);
     try {
-      const { id, channelId } = await createThread(groupId, name.trim(), emoji);
-      onCreated({ id, groupId, channelId, name: name.trim(), emoji, createdBy: "", createdAt: Date.now(), lastMessageAt: null });
+      if (thread) {
+        await updateThread(thread.id, { name: name.trim(), emoji });
+        onSaved({ ...thread, name: name.trim(), emoji });
+      } else {
+        const { id, channelId } = await createThread(groupId, name.trim(), emoji);
+        onSaved({ id, groupId, channelId, name: name.trim(), emoji, createdBy: "", createdAt: Date.now(), lastMessageAt: null });
+      }
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Failed to create thread.");
+      setErr(e instanceof Error ? e.message : `Failed to ${isEdit ? "update" : "create"} thread.`);
     }
     setBusy(false);
+  }
+
+  async function handleDelete() {
+    if (!thread) return;
+    setBusy(true);
+    try {
+      await deleteThread(thread.id);
+      onDeleted?.();
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Failed to delete thread.");
+      setBusy(false);
+    }
   }
 
   return (
     <div className="thread-modal-backdrop" onClick={onClose}>
       <div className="thread-modal" onClick={(e) => e.stopPropagation()}>
-        <h3 className="thread-modal-title">New Thread</h3>
-        <form onSubmit={(e) => void handleCreate(e)}>
+        <h3 className="thread-modal-title">{isEdit ? "Edit Thread" : "New Thread"}</h3>
+        <form onSubmit={(e) => void handleSubmit(e)}>
           <div className="thread-emoji-row">
             <button type="button" className="thread-emoji-trigger" onClick={() => setEditingEmoji((v) => !v)}>
               <span className="thread-emoji-big">{emoji}</span>
@@ -726,11 +1101,33 @@ function NewThreadModal({ groupId, onClose, onCreated }: {
           {err && <p className="groups-error">{err}</p>}
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             <button className="btn-primary" type="submit" disabled={busy || !name.trim()}>
-              {busy ? "Creating…" : "Create Thread"}
+              {busy ? (isEdit ? "Saving…" : "Creating…") : (isEdit ? "Save Changes" : "Create Thread")}
             </button>
             <button className="btn-secondary" type="button" onClick={onClose}>Cancel</button>
           </div>
         </form>
+        {isEdit && (
+          confirmDelete ? (
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 8 }}>
+              <span className="small">Delete this thread and all its messages? This cannot be undone.</span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void handleDelete()}>
+                  {busy ? "Deleting…" : "Delete Thread"}
+                </button>
+                <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => setConfirmDelete(false)}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="groups-text-btn groups-text-btn-danger"
+              style={{ marginTop: 14 }}
+              onClick={() => setConfirmDelete(true)}
+            >
+              <TrashIcon className="q-icon" /> Delete Thread
+            </button>
+          )
+        )}
       </div>
     </div>
   );

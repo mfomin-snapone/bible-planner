@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { currentDay, progressKey, dateForDay } from "../lib/schedule";
 import { useAppState } from "../state/AppState";
 import { TRACKS, type PlanDay, type Settings } from "../types";
@@ -10,8 +10,19 @@ export function PlanScreen() {
   const [query, setQuery] = useState("");
   const [openDay, setOpenDay] = useState<number | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const hasAutoScrolled = useRef(false);
 
   const today = currentDay(settings, plan.length);
+
+  // Land on today's day automatically on first arrival at the list — the
+  // Today button below still lets you jump back after scrolling away.
+  useEffect(() => {
+    if (hasAutoScrolled.current || planLoading || today === null || query.trim()) return;
+    hasAutoScrolled.current = true;
+    requestAnimationFrame(() => {
+      document.getElementById(`plan-day-${today}`)?.scrollIntoView({ block: "center" });
+    });
+  }, [planLoading, today, query]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -112,7 +123,7 @@ function PlanRow({
     ? date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
     : null;
   return (
-    <button className="plan-row" id={`plan-day-${day.day}`} onClick={onOpen}>
+    <button className={`plan-row ${isToday ? "today" : ""}`} id={`plan-day-${day.day}`} onClick={onOpen}>
       <span className={`plan-day-badge ${isToday ? "today" : ""}`}>
         {isToday ? "TODAY" : day.day}
       </span>
