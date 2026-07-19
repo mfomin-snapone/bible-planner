@@ -376,16 +376,6 @@ export default function ChatView({ channelId, title, isGroup = false, onBack }: 
                     </div>
                   )}
                 </div>
-                <div className="chat-msg-actions">
-                  <button className="chat-react-btn" onClick={(e) => { e.stopPropagation(); setPickerFor(pickerFor === m.id ? null : m.id); }} aria-label="React">
-                    <SmileIcon />
-                  </button>
-                  {!isMine && (
-                    <button className="chat-report-btn" onClick={(e) => { e.stopPropagation(); setReportTarget(m.id); setReportReason(""); }} aria-label="Report message" title="Report">
-                      <FlagIcon />
-                    </button>
-                  )}
-                </div>
                 {Object.keys(grouped).length > 0 && (
                   <div className="chat-reactions">
                     {Object.entries(grouped).map(([emoji, { count, mine }]) => (
@@ -394,6 +384,16 @@ export default function ChatView({ channelId, title, isGroup = false, onBack }: 
                       </button>
                     ))}
                   </div>
+                )}
+              </div>
+              <div className="chat-msg-actions">
+                <button className="chat-react-btn" onClick={(e) => { e.stopPropagation(); setPickerFor(pickerFor === m.id ? null : m.id); }} aria-label="React">
+                  <SmileIcon />
+                </button>
+                {!isMine && (
+                  <button className="chat-report-btn" onClick={(e) => { e.stopPropagation(); setReportTarget(m.id); setReportReason(""); }} aria-label="Report message" title="Report">
+                    <FlagIcon />
+                  </button>
                 )}
               </div>
             </div>
