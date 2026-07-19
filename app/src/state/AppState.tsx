@@ -43,13 +43,17 @@ function loadLocalState(): PlanState {
           parsed.answers && typeof parsed.answers === "object" && !Array.isArray(parsed.answers)
             ? parsed.answers
             : {},
+        customQuestions:
+          parsed.customQuestions && typeof parsed.customQuestions === "object" && !Array.isArray(parsed.customQuestions)
+            ? parsed.customQuestions
+            : {},
         updatedAt: parsed.updatedAt ?? 0,
       };
     }
   } catch {
     // Corrupt local state falls through to defaults.
   }
-  return { settings: DEFAULT_SETTINGS, progress: [], answers: {}, updatedAt: 0 };
+  return { settings: DEFAULT_SETTINGS, progress: [], answers: {}, customQuestions: {}, updatedAt: 0 };
 }
 
 interface AppStateValue {
@@ -67,6 +71,9 @@ interface AppStateValue {
   toggleProgress: (day: number, track: Track) => void;
   /** Update a study-question answer. key = `"day:questionIndex"`. */
   updateAnswer: (key: string, html: string) => void;
+  customQuestions: Record<number, string[]>;
+  addCustomQuestion: (day: number, text: string) => void;
+  removeCustomQuestion: (day: number, idx: number) => void;
   resetProgress: () => void;
   register: (username: string, password: string, birthDate: string) => Promise<void>;
   login: (username: string, password: string) => Promise<void>;
@@ -197,6 +204,33 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     [mutate],
   );
 
+  const addCustomQuestion = useCallback(
+    (day: number, text: string) => {
+      mutate((prev) => {
+        const existing = prev.customQuestions?.[day] ?? [];
+        return {
+          ...prev,
+          customQuestions: { ...(prev.customQuestions ?? {}), [day]: [...existing, text] },
+        };
+      });
+    },
+    [mutate],
+  );
+
+  const removeCustomQuestion = useCallback(
+    (day: number, idx: number) => {
+      mutate((prev) => {
+        const existing = [...(prev.customQuestions?.[day] ?? [])];
+        existing.splice(idx, 1);
+        return {
+          ...prev,
+          customQuestions: { ...(prev.customQuestions ?? {}), [day]: existing },
+        };
+      });
+    },
+    [mutate],
+  );
+
   const adoptSession = useCallback(
     async (token: string, nextUser: User) => {
       storeSession(token, nextUser);
@@ -211,6 +245,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
               settings: updatedAt > prev.updatedAt ? data.settings : prev.settings,
               progress: [...new Set([...prev.progress, ...data.progress])],
               answers: updatedAt > prev.updatedAt ? (data.answers ?? {}) : prev.answers,
+              customQuestions: updatedAt > prev.updatedAt ? (data.customQuestions ?? {}) : (prev.customQuestions ?? {}),
               updatedAt: Date.now(),
             };
             pushServerState(merged).catch(() => {});
@@ -264,6 +299,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     settings: state.settings,
     progress,
     answers: state.answers,
+    customQuestions: state.customQuestions ?? {},
     user,
     syncError,
     skippedAuth,
@@ -271,6 +307,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     updateSettings,
     toggleProgress,
     updateAnswer,
+    addCustomQuestion,
+    removeCustomQuestion,
     resetProgress,
     register,
     login,

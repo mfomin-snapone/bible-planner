@@ -145,6 +145,10 @@ export default function ChatView({ channelId, title, isGroup = false, onBack }: 
   const [reportReason, setReportReason] = useState("");
   const [reportBusy, setReportBusy] = useState(false);
   const [reportDone, setReportDone] = useState(false);
+  const [showVersePicker, setShowVersePicker] = useState(false);
+  const [vpBook, setVpBook] = useState(40);
+  const [vpChapter, setVpChapter] = useState(1);
+  const vpBookEntry = BIBLE_BOOKS.find((b) => b.id === vpBook) ?? BIBLE_BOOKS[39];
   const lastTypingRef = useRef<number>(0);
   const typingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -364,22 +368,22 @@ export default function ChatView({ channelId, title, isGroup = false, onBack }: 
                     ? <img src={gif.url} alt="GIF" className="chat-gif" loading="lazy" />
                     : <span className="chat-body">{renderWithVerseChips(rawBody, (ref) => { openBibleRef(ref.bookId, ref.chapter); onBack(); })}</span>}
                   <span className="chat-time">{formatTime(m.sentAt)}</span>
-                  <div className="chat-msg-actions">
-                    <button className="chat-react-btn" onClick={(e) => { e.stopPropagation(); setPickerFor(pickerFor === m.id ? null : m.id); }} aria-label="React">
-                      <SmileIcon />
-                    </button>
-                    {!isMine && (
-                      <button className="chat-report-btn" onClick={(e) => { e.stopPropagation(); setReportTarget(m.id); setReportReason(""); }} aria-label="Report message" title="Report">
-                        <FlagIcon />
-                      </button>
-                    )}
-                  </div>
                   {pickerFor === m.id && (
                     <div className="reaction-picker" onClick={(e) => e.stopPropagation()}>
                       {QUICK_REACTIONS.map((emoji) => (
                         <button key={emoji} className="reaction-pick-btn" onClick={() => void handleReaction(m.id, emoji)}>{emoji}</button>
                       ))}
                     </div>
+                  )}
+                </div>
+                <div className="chat-msg-actions">
+                  <button className="chat-react-btn" onClick={(e) => { e.stopPropagation(); setPickerFor(pickerFor === m.id ? null : m.id); }} aria-label="React">
+                    <SmileIcon />
+                  </button>
+                  {!isMine && (
+                    <button className="chat-report-btn" onClick={(e) => { e.stopPropagation(); setReportTarget(m.id); setReportReason(""); }} aria-label="Report message" title="Report">
+                      <FlagIcon />
+                    </button>
                   )}
                 </div>
                 {Object.keys(grouped).length > 0 && (
@@ -434,6 +438,9 @@ export default function ChatView({ channelId, title, isGroup = false, onBack }: 
         <button type="button" className="chat-gif-btn" onClick={() => setShowGifPicker((v) => !v)} aria-label="GIF" title="Send GIF">
           <GifIcon />
         </button>
+        <button type="button" className="chat-gif-btn" onClick={() => { setShowVersePicker(true); setVpBook(40); setVpChapter(1); }} aria-label="Insert verse" title="Insert verse reference">
+          <BookOpenIcon />
+        </button>
         <input
           className="chat-input"
           value={text}
@@ -446,6 +453,123 @@ export default function ChatView({ channelId, title, isGroup = false, onBack }: 
           <SendIcon />
         </button>
       </form>
+
+      {/* Verse picker modal */}
+      {showVersePicker && (
+        <div className="report-modal-backdrop" onClick={() => setShowVersePicker(false)}>
+          <div className="report-modal verse-picker-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: "0 0 14px" }}>Insert Verse Reference</h3>
+            <label className="verse-picker-label">
+              Book
+              <select
+                className="verse-picker-select"
+                value={vpBook}
+                onChange={(e) => { setVpBook(Number(e.target.value)); setVpChapter(1); }}
+              >
+                <optgroup label="Tanakh">
+                  {BIBLE_BOOKS.filter((b) => b.id <= 39).map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="B'rit Chadashah">
+                  {BIBLE_BOOKS.filter((b) => b.id >= 40).map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </optgroup>
+              </select>
+            </label>
+            <label className="verse-picker-label">
+              Chapter
+              <div className="verse-picker-chapters">
+                {Array.from({ length: vpBookEntry.chapters }, (_, i) => i + 1).map((c) => (
+                  <button
+                    key={c}
+                    className={`verse-picker-ch-btn ${c === vpChapter ? "selected" : ""}`}
+                    onClick={() => setVpChapter(c)}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </label>
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <button
+                className="btn"
+                onClick={() => {
+                  const ref = `${vpBookEntry.name} ${vpChapter}`;
+                  setText((prev) => prev ? `${prev} ${ref}` : ref);
+                  setShowVersePicker(false);
+                }}
+              >
+                Insert
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setShowVersePicker(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Verse picker modal */}
+      {showVersePicker && (
+        <div className="report-modal-backdrop" onClick={() => setShowVersePicker(false)}>
+          <div className="report-modal verse-picker-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: "0 0 14px" }}>Insert Verse Reference</h3>
+            <label className="verse-picker-label">
+              Book
+              <select
+                className="verse-picker-select"
+                value={vpBook}
+                onChange={(e) => { setVpBook(Number(e.target.value)); setVpChapter(1); }}
+              >
+                <optgroup label="Tanakh">
+                  {BIBLE_BOOKS.filter((b) => b.id <= 39).map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="B'rit Chadashah">
+                  {BIBLE_BOOKS.filter((b) => b.id >= 40).map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </optgroup>
+              </select>
+            </label>
+            <label className="verse-picker-label" style={{ marginTop: 12 }}>
+              Chapter
+              <div className="verse-picker-chapters">
+                {Array.from({ length: vpBookEntry.chapters }, (_, i) => i + 1).map((c) => (
+                  <button
+                    key={c}
+                    className={`verse-picker-ch-btn ${c === vpChapter ? "selected" : ""}`}
+                    onClick={() => setVpChapter(c)}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </label>
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <button
+                className="btn"
+                onClick={() => {
+                  const ref = `${vpBookEntry.name} ${vpChapter}`;
+                  setText((prev) => prev ? `${prev} ${ref}` : ref);
+                  setShowVersePicker(false);
+                }}
+              >
+                Insert
+              </button>
+              <button className="btn btn-secondary" onClick={() => setShowVersePicker(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Report modal */}
       {reportTarget && (

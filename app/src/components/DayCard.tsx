@@ -41,8 +41,10 @@ const QUESTION_ICONS: Record<QuestionType, typeof BookIcon> = {
 };
 
 export function DayCard({ day }: { day: PlanDay }) {
-  const { settings, progress, toggleProgress, answers, updateAnswer } = useAppState();
+  const { settings, progress, toggleProgress, answers, updateAnswer, customQuestions, addCustomQuestion, removeCustomQuestion } = useAppState();
   const [reader, setReader] = useState<ReaderRequest | null>(null);
+  const [addingQ, setAddingQ] = useState(false);
+  const [newQText, setNewQText] = useState("");
 
   const date = dateForDay(settings, day.day);
   const hebrewInfo = date
@@ -142,6 +144,91 @@ export function DayCard({ day }: { day: PlanDay }) {
           );
         })}
       </div>
+
+      {/* ── Custom Questions ─────────────────────────────────────────────── */}
+      <div className="section-label" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span>My Questions</span>
+        <button
+          className="btn btn-secondary"
+          style={{ padding: "4px 10px", fontSize: "0.78rem" }}
+          onClick={() => setAddingQ(true)}
+        >
+          + Add
+        </button>
+      </div>
+
+      {addingQ && (
+        <div className="card custom-q-add">
+          <input
+            className="custom-q-input"
+            value={newQText}
+            onChange={(e) => setNewQText(e.target.value)}
+            placeholder="Type your study question…"
+            maxLength={300}
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && newQText.trim()) {
+                addCustomQuestion(day.day, newQText.trim());
+                setNewQText("");
+                setAddingQ(false);
+              }
+            }}
+          />
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button
+              className="btn"
+              onClick={() => {
+                if (newQText.trim()) {
+                  addCustomQuestion(day.day, newQText.trim());
+                  setNewQText("");
+                  setAddingQ(false);
+                }
+              }}
+              disabled={!newQText.trim()}
+            >
+              Save
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => { setNewQText(""); setAddingQ(false); }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {(customQuestions[day.day] ?? []).length > 0 && (
+        <div className="card" style={{ paddingTop: 6, paddingBottom: 6 }}>
+          {(customQuestions[day.day] ?? []).map((qText, idx) => {
+            const answerKey = `${day.day}:cq:${idx}`;
+            return (
+              <div className="question" key={idx}>
+                <div className="question-label" style={{ justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <ChatIcon className="q-icon" />
+                    My Question
+                  </div>
+                  <button
+                    className="custom-q-remove"
+                    onClick={() => removeCustomQuestion(day.day, idx)}
+                    aria-label="Remove question"
+                  >
+                    Remove
+                  </button>
+                </div>
+                <div className="question-text">{qText}</div>
+                <RichTextEditor
+                  value={answers[answerKey] ?? ""}
+                  onChange={(html) => updateAnswer(answerKey, html)}
+                  onVerseClick={(ref) => setReader({ reference: ref })}
+                  placeholder="Write your answer…"
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {reader && <ReaderOverlay request={reader} onClose={() => setReader(null)} />}
     </>

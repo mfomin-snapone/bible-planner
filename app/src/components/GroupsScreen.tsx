@@ -127,7 +127,7 @@ export default function GroupsScreen() {
           {/* Notifications bell */}
           <div className="notif-bell-wrap">
             <button
-              className="groups-icon-btn"
+              className="groups-header-btn"
               title="Notifications"
               onClick={async () => {
                 setShowNotifs((v) => !v);
@@ -138,6 +138,7 @@ export default function GroupsScreen() {
               }}
             >
               <BellIcon />
+              <span>Alerts</span>
               {unreadCount > 0 && <span className="notif-badge">{unreadCount > 9 ? "9+" : unreadCount}</span>}
             </button>
             {showNotifs && (
@@ -161,11 +162,13 @@ export default function GroupsScreen() {
               </div>
             )}
           </div>
-          <button className="groups-icon-btn" title="Join a group" onClick={() => setView({ kind: "join" })}>
+          <button className="groups-header-btn" title="Join a group" onClick={() => setView({ kind: "join" })}>
             <PersonAddIcon />
+            <span>Join</span>
           </button>
-          <button className="groups-icon-btn" title="Create group" onClick={() => setView({ kind: "create" })}>
+          <button className="groups-header-btn" title="Create group" onClick={() => setView({ kind: "create" })}>
             <UsersIcon />
+            <span>New Group</span>
           </button>
         </div>
       </div>

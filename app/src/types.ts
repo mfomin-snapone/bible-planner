@@ -96,6 +96,8 @@ export interface PlanState {
   progress: string[];
   /** Study question answers keyed by "day:questionIndex" → sanitized HTML. */
   answers: Record<string, string>;
+  /** User-added custom study questions per plan day, keyed by day number. */
+  customQuestions: Record<number, string[]>;
   /** Milliseconds since epoch; versions the whole blob for sync. */
   updatedAt: number;
 }
