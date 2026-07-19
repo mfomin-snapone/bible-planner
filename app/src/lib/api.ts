@@ -223,6 +223,12 @@ export function toggleReaction(messageId: string, emoji: string) {
   });
 }
 
+export function deleteMessage(messageId: string) {
+  return request<{ ok: boolean; deletedAt?: number }>(`/api/messages/${encodeURIComponent(messageId)}`, {
+    method: "DELETE",
+  });
+}
+
 // ─── Threads ─────────────────────────────────────────────────────────────────
 
 export function listThreads(groupId: string) {

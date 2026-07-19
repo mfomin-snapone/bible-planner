@@ -1462,6 +1462,10 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .chat-body { font-size: 0.93rem; line-height: 1.45; }
 .chat-time { font-size: 0.65rem; opacity: 0.65; align-self: flex-end; }
 
+.chat-bubble-deleted { background: transparent !important; border: 1px dashed var(--border) !important; }
+.chat-body-deleted { font-style: italic; color: var(--text-muted); }
+.chat-bubble-mine.chat-bubble-deleted .chat-time { color: var(--text-muted); opacity: 1; }
+
 /* Action buttons — flex sibling of bubble-wrap, reversed automatically for mine */
 .chat-msg-actions {
   flex-shrink: 0;

@@ -151,6 +151,7 @@ const MIGRATIONS = [
   `ALTER TABLE groups_data ADD COLUMN invite_expires_at INTEGER`,
   `ALTER TABLE groups_data ADD COLUMN invite_max_uses INTEGER`,
   `ALTER TABLE groups_data ADD COLUMN invite_use_count INTEGER DEFAULT 0`,
+  `ALTER TABLE messages ADD COLUMN deleted_at INTEGER`,
 ];
 for (const sql of MIGRATIONS) {
   await db.execute(sql).catch(() => {}); // ignore "duplicate column" errors

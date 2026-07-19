@@ -100,6 +100,7 @@ export default function GroupsScreen() {
         title={view.title}
         isGroup={view.isGroup}
         groupId={view.groupId}
+        isGroupAdmin={groups.find((g) => g.id === view.groupId)?.role === "admin"}
         onBack={() => setView(view.groupId ? { kind: "detail", groupId: view.groupId } : { kind: "list" })}
       />
     );

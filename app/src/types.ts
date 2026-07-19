@@ -189,6 +189,8 @@ export interface Message {
   /** JSON-stringified EncryptedMessage, GIF JSON, or plain text. */
   content: string;
   sentAt: number;
+  /** Milliseconds-since-epoch the message was deleted, or null/undefined if not deleted. */
+  deletedAt?: number | null;
   reactions: Reaction[];
 }
 

@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { Message, Reaction } from "../types";
-import { listMessages, sendMessage, toggleReaction, reportMessage, getMyChannelKey, getMyGroupKey } from "../lib/api";
+import { listMessages, sendMessage, toggleReaction, reportMessage, deleteMessage, getMyChannelKey, getMyGroupKey } from "../lib/api";
 import { useAppState } from "../state/AppState";
 import { realtime } from "../lib/realtime";
 import { decryptMessage, getCachedChannelKey, cacheChannelKey, loadKeyPair, decryptChannelKey, type EncryptedMessage } from "../lib/encryption";
-import { ArrowLeftIcon, LockIcon, SendIcon, SmileIcon, GifIcon, FlagIcon, BookOpenIcon } from "./icons";
+import { ArrowLeftIcon, LockIcon, SendIcon, SmileIcon, GifIcon, FlagIcon, BookOpenIcon, TrashIcon } from "./icons";
 import { getAvatar } from "../lib/avatars";
 import { AvatarDisplay } from "../lib/AvatarIcon";
 import { ReaderOverlay, type ReaderRequest } from "./ReaderOverlay";
@@ -100,6 +100,8 @@ interface ChatViewProps {
   title: string;
   isGroup?: boolean;
   groupId?: string;
+  /** True if the viewer is an admin of this chat's group — lets them delete any member's message. */
+  isGroupAdmin?: boolean;
   onBack: () => void;
 }
 
@@ -131,7 +133,7 @@ const REPORT_REASONS = [
   "Other",
 ];
 
-export default function ChatView({ channelId, title, isGroup = false, onBack }: ChatViewProps) {
+export default function ChatView({ channelId, title, isGroup = false, isGroupAdmin = false, onBack }: ChatViewProps) {
   const { user, settings } = useAppState();
   const [reader, setReader] = useState<ReaderRequest | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -146,6 +148,7 @@ export default function ChatView({ channelId, title, isGroup = false, onBack }: 
   const [gifQuery, setGifQuery] = useState("");
   const [gifResults, setGifResults] = useState<{ url: string; preview: string }[]>([]);
   const [reportTarget, setReportTarget] = useState<string | null>(null); // message id
+  const [deletingId, setDeletingId] = useState<string | null>(null); // message id pending delete confirmation
   const [reportReason, setReportReason] = useState("");
   const [reportBusy, setReportBusy] = useState(false);
   const [reportDone, setReportDone] = useState(false);
@@ -259,6 +262,15 @@ export default function ChatView({ channelId, title, isGroup = false, onBack }: 
     return unsub;
   }, [channelId]);
 
+  useEffect(() => {
+    const unsub = realtime.on("message:deleted", (data) => {
+      const d = data as { messageId: string; channelId: string; deletedAt: number };
+      if (d.channelId !== channelId) return;
+      setMessages((prev) => prev.map((m) => (m.id === d.messageId ? { ...m, content: "", deletedAt: d.deletedAt } : m)));
+    });
+    return unsub;
+  }, [channelId]);
+
   // ── Giphy search ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!showGifPicker || !GIPHY_KEY) return;
@@ -332,6 +344,17 @@ export default function ChatView({ channelId, title, isGroup = false, onBack }: 
     } catch { /* ignore */ }
   }
 
+  async function handleDelete(messageId: string) {
+    setDeletingId(null);
+    const deletedAt = Date.now();
+    setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, content: "", deletedAt } : m)));
+    try {
+      await deleteMessage(messageId);
+    } catch {
+      // Real-time / next reload will reconcile if this actually failed server-side.
+    }
+  }
+
   async function submitReport() {
     if (!reportTarget || !reportReason) return;
     setReportBusy(true);
@@ -361,9 +384,10 @@ export default function ChatView({ channelId, title, isGroup = false, onBack }: 
         {!loadingMsgs && messages.length === 0 && <p className="chat-empty">No messages yet. Say hello!</p>}
         {messages.map((m) => {
           const isMine = m.senderId === myId;
+          const isDeleted = !!m.deletedAt;
           const rawBody = decrypted[m.id] ?? (tryParseEncrypted(m.content) ? "🔒 [encrypted — sent from another device]" : m.content);
-          const gif = isGifContent(rawBody);
-          const reactions = reactionsByMsg[m.id] ?? [];
+          const gif = !isDeleted && isGifContent(rawBody);
+          const reactions = isDeleted ? [] : (reactionsByMsg[m.id] ?? []);
           const grouped: Record<string, { count: number; mine: boolean }> = {};
           for (const r of reactions) {
             if (!grouped[r.emoji]) grouped[r.emoji] = { count: 0, mine: false };
@@ -372,6 +396,7 @@ export default function ChatView({ channelId, title, isGroup = false, onBack }: 
           }
           const rawAvatarId = (m as Message & { senderAvatar?: string }).senderAvatar ?? "default";
           const senderAvatar = getAvatar(rawAvatarId);
+          const canDelete = !isDeleted && (isMine || isGroupAdmin);
           return (
             <div key={m.id} className={`chat-bubble-row ${isMine ? "chat-mine" : "chat-theirs"}`}>
               {!isMine && (
@@ -385,14 +410,18 @@ export default function ChatView({ channelId, title, isGroup = false, onBack }: 
                 />
               )}
               <div className="chat-bubble-wrap">
-                <div className={`chat-bubble ${isMine ? "chat-bubble-mine" : "chat-bubble-theirs"}`}>
+                <div className={`chat-bubble ${isMine ? "chat-bubble-mine" : "chat-bubble-theirs"} ${isDeleted ? "chat-bubble-deleted" : ""}`}>
                   {!isMine && <span className="chat-sender">{m.senderUsername}</span>}
-                  {gif
-                    ? <img src={gif.url} alt="GIF" className="chat-gif" loading="lazy" />
-                    : <span className="chat-body">{renderWithVerseChips(rawBody, (ref) => {
-                        const book = BIBLE_BOOKS.find((b) => b.id === ref.bookId);
-                        if (book) setReader({ reference: `${book.name} ${ref.chapter}`, returnLabel: "Back to message" });
-                      })}</span>}
+                  {isDeleted ? (
+                    <span className="chat-body chat-body-deleted">This message has been deleted</span>
+                  ) : gif ? (
+                    <img src={gif.url} alt="GIF" className="chat-gif" loading="lazy" />
+                  ) : (
+                    <span className="chat-body">{renderWithVerseChips(rawBody, (ref) => {
+                      const book = BIBLE_BOOKS.find((b) => b.id === ref.bookId);
+                      if (book) setReader({ reference: `${book.name} ${ref.chapter}`, returnLabel: "Back to message" });
+                    })}</span>
+                  )}
                   <span className="chat-time">{formatTime(m.sentAt)}</span>
                   {pickerFor === m.id && (
                     <div className="reaction-picker" onClick={(e) => e.stopPropagation()}>
@@ -412,16 +441,23 @@ export default function ChatView({ channelId, title, isGroup = false, onBack }: 
                   </div>
                 )}
               </div>
-              <div className="chat-msg-actions">
-                <button className="chat-react-btn" onClick={(e) => { e.stopPropagation(); setPickerFor(pickerFor === m.id ? null : m.id); }} aria-label="React">
-                  <SmileIcon />
-                </button>
-                {!isMine && (
-                  <button className="chat-report-btn" onClick={(e) => { e.stopPropagation(); setReportTarget(m.id); setReportReason(""); }} aria-label="Report message" title="Report">
-                    <FlagIcon />
+              {!isDeleted && (
+                <div className="chat-msg-actions">
+                  <button className="chat-react-btn" onClick={(e) => { e.stopPropagation(); setPickerFor(pickerFor === m.id ? null : m.id); }} aria-label="React">
+                    <SmileIcon />
                   </button>
-                )}
-              </div>
+                  {!isMine && (
+                    <button className="chat-report-btn" onClick={(e) => { e.stopPropagation(); setReportTarget(m.id); setReportReason(""); }} aria-label="Report message" title="Report">
+                      <FlagIcon />
+                    </button>
+                  )}
+                  {canDelete && (
+                    <button className="chat-report-btn" onClick={(e) => { e.stopPropagation(); setDeletingId(m.id); }} aria-label="Delete message" title="Delete">
+                      <TrashIcon />
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
@@ -564,6 +600,22 @@ export default function ChatView({ channelId, title, isGroup = false, onBack }: 
               <button className="btn btn-secondary" onClick={() => setShowVersePicker(false)}>
                 Cancel
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirm modal */}
+      {deletingId && (
+        <div className="report-modal-backdrop" onClick={() => setDeletingId(null)}>
+          <div className="report-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Delete Message</h3>
+            <p className="small muted" style={{ margin: "0 0 4px" }}>
+              This can't be undone. Everyone in this chat will see "This message has been deleted" in its place.
+            </p>
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <button className="btn btn-danger" onClick={() => void handleDelete(deletingId)}>Delete</button>
+              <button className="btn btn-secondary" onClick={() => setDeletingId(null)}>Cancel</button>
             </div>
           </div>
         </div>

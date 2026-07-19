@@ -671,6 +671,16 @@ async function canAccessChannel(userId, channelId) {
   return gRows.length > 0;
 }
 
+/** True if `userId` is an admin of the group that owns `channelId` (false for DM channels). */
+async function isChannelGroupAdmin(userId, channelId) {
+  const { rows } = await db.execute({
+    sql: `SELECT gm.role FROM channels c JOIN group_members gm ON gm.group_id = c.group_id
+          WHERE c.id = ? AND gm.user_id = ?`,
+    args: [channelId, userId],
+  });
+  return rows[0] ? String(rows[0].role) === "admin" : false;
+}
+
 app.get("/api/channels/:id/messages", requireAuth, async (req, res) => {
   try {
     if (!(await canAccessChannel(req.userId, req.params.id))) {
@@ -680,7 +690,7 @@ app.get("/api/channels/:id/messages", requireAuth, async (req, res) => {
     const limit = Math.min(Number(req.query.limit ?? 50), 100);
     const { rows } = await db.execute({
       sql: `SELECT m.id, m.channel_id, m.sender_id, u.username as sender_username,
-                   u.avatar as sender_avatar, m.content, m.sent_at
+                   u.avatar as sender_avatar, m.content, m.sent_at, m.deleted_at
             FROM messages m JOIN users u ON u.id = m.sender_id
             WHERE m.channel_id = ? AND m.sent_at < ?
             ORDER BY m.sent_at DESC LIMIT ?`,
@@ -709,6 +719,7 @@ app.get("/api/channels/:id/messages", requireAuth, async (req, res) => {
         senderId: String(r.sender_id), senderUsername: String(r.sender_username),
         senderAvatar: r.sender_avatar ? String(r.sender_avatar) : "default",
         content: String(r.content), sentAt: Number(r.sent_at),
+        deletedAt: r.deleted_at != null ? Number(r.deleted_at) : null,
         reactions: reactionsMap[String(r.id)] ?? [],
       })),
     });
@@ -733,7 +744,7 @@ app.post("/api/channels/:id/messages", requireAuth, async (req, res) => {
       sql: "INSERT INTO messages (id, channel_id, sender_id, content, sent_at) VALUES (?, ?, ?, ?, ?)",
       args: [id, channelId, req.userId, content, sentAt],
     });
-    const msg = { id, channelId, senderId: req.userId, senderUsername: req.username, senderAvatar, content, sentAt, reactions: [] };
+    const msg = { id, channelId, senderId: req.userId, senderUsername: req.username, senderAvatar, content, sentAt, deletedAt: null, reactions: [] };
     // Push real-time + create notifications for all participants
     const { rows: dmParts } = await db.execute({
       sql: "SELECT user_id FROM channel_participants WHERE channel_id = ?", args: [channelId],
@@ -769,6 +780,37 @@ app.post("/api/channels/:id/messages", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("[messages:post]", err);
     res.status(500).json({ error: "Unable to send message." });
+  }
+});
+
+app.delete("/api/messages/:id", requireAuth, async (req, res) => {
+  try {
+    const { rows } = await db.execute({
+      sql: "SELECT sender_id, channel_id, deleted_at FROM messages WHERE id = ?",
+      args: [req.params.id],
+    });
+    if (!rows[0]) return res.status(404).json({ error: "Message not found." });
+    const channelId = String(rows[0].channel_id);
+    if (!(await canAccessChannel(req.userId, channelId))) {
+      return res.status(403).json({ error: "Forbidden." });
+    }
+    if (rows[0].deleted_at != null) return res.json({ ok: true }); // already deleted
+
+    const isOwn = String(rows[0].sender_id) === req.userId;
+    const isAdmin = await isChannelGroupAdmin(req.userId, channelId);
+    if (!isOwn && !isAdmin) {
+      return res.status(403).json({ error: "You can only delete your own messages." });
+    }
+
+    const deletedAt = Date.now();
+    // Soft delete: the row (and its reactions/ordering) stays, but the actual
+    // content is wiped from storage — not just hidden client-side.
+    await db.execute({ sql: "UPDATE messages SET content = '', deleted_at = ? WHERE id = ?", args: [deletedAt, req.params.id] });
+    await broadcastToChannel(channelId, "message:deleted", { messageId: req.params.id, channelId, deletedAt }, null);
+    res.json({ ok: true, deletedAt });
+  } catch (err) {
+    console.error("[messages:delete]", err);
+    res.status(500).json({ error: "Unable to delete message." });
   }
 });
 
