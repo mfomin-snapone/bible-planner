@@ -187,10 +187,19 @@ function Onboarding() {
             </button>
 
             {bookSearchResult !== null && (
-              <p className="book-picker-result">
-                ✓ <strong>{selectedBook}</strong> starts at plan day <strong>{bookSearchResult}</strong>.
-                {" "}Begin date set to Day {startDay}.
-              </p>
+              <div className="book-picker-confirmed">
+                <span>📖</span>
+                <span>
+                  <strong>{selectedBook}</strong> → Plan Day <strong>{bookSearchResult}</strong>
+                </span>
+                <button
+                  className="btn btn-secondary"
+                  style={{ marginLeft: "auto", padding: "4px 10px", fontSize: "0.8rem" }}
+                  onClick={() => { setBookSearchResult(null); setStartDay(1); }}
+                >
+                  Clear
+                </button>
+              </div>
             )}
             {bookNotFound && (
               <p className="book-picker-result book-picker-notfound">
@@ -205,7 +214,11 @@ function Onboarding() {
           onClick={() => updateSettings({ startDate, startDay })}
           disabled={!startDate}
         >
-          Start the Plan
+          {bookSearchResult !== null
+            ? `Start the Plan at Day ${startDay} (${selectedBook})`
+            : startDay > 1
+            ? `Start the Plan at Day ${startDay}`
+            : "Start the Plan"}
         </button>
       </div>
     </div>

@@ -124,8 +124,30 @@ const SCHEMA_STATEMENTS = [
     created_at INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, created_at DESC)`,
+  // Reports table
+  `CREATE TABLE IF NOT EXISTS reports (
+    id              TEXT PRIMARY KEY,
+    reporter_id     TEXT NOT NULL REFERENCES users(id),
+    message_id      TEXT NOT NULL REFERENCES messages(id),
+    channel_id      TEXT NOT NULL,
+    reported_user_id TEXT NOT NULL REFERENCES users(id),
+    target_admin_id TEXT,
+    reason          TEXT NOT NULL DEFAULT '',
+    status          TEXT NOT NULL DEFAULT 'pending',
+    created_at      INTEGER NOT NULL
+  )`,
 ];
 
 for (const sql of SCHEMA_STATEMENTS) {
   await db.execute(sql);
+}
+
+// Additive migrations — safe to run on existing databases
+const MIGRATIONS = [
+  `ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT 'default'`,
+  `ALTER TABLE users ADD COLUMN birth_date TEXT`,
+  `ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0`,
+];
+for (const sql of MIGRATIONS) {
+  await db.execute(sql).catch(() => {}); // ignore "duplicate column" errors
 }

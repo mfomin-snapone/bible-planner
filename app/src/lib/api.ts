@@ -48,10 +48,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return body;
 }
 
-export function register(username: string, password: string) {
+export function register(username: string, password: string, birthDate: string) {
   return request<{ token: string; user: User }>("/api/auth/register", {
     method: "POST",
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username, password, birthDate }),
   });
 }
 
@@ -59,6 +59,20 @@ export function login(username: string, password: string) {
   return request<{ token: string; user: User }>("/api/auth/login", {
     method: "POST",
     body: JSON.stringify({ username, password }),
+  });
+}
+
+export function updateProfile(avatar: string) {
+  return request<{ ok: boolean }>("/api/users/me", {
+    method: "PUT",
+    body: JSON.stringify({ avatar }),
+  });
+}
+
+export function reportMessage(messageId: string, reason: string) {
+  return request<{ ok: boolean }>(`/api/messages/${messageId}/report`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
   });
 }
 

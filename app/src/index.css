@@ -94,10 +94,10 @@
 :root:is([data-theme="dark"], [data-theme="blue"], [data-theme="amoled"])[data-accent="teal"] { --accent: #7fc9ca; --accent-contrast: #0a2c2c; }
 :root:is([data-theme="dark"], [data-theme="blue"], [data-theme="amoled"])[data-accent="amber"] { --accent: #dfb46b; --accent-contrast: #33220a; }
 
-/* Font choices */
-:root[data-font="serif"] { --font: "New York", ui-serif, Georgia, "Times New Roman", serif; }
-:root[data-font="rounded"] { --font: ui-rounded, "SF Pro Rounded", var(--sans); }
-:root[data-font="mono"] { --font: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+/* Font choices — scoped to Bible reader only */
+[data-font="serif"] .reader-body { font-family: "New York", ui-serif, Georgia, "Times New Roman", serif; }
+[data-font="rounded"] .reader-body { font-family: ui-rounded, "SF Pro Rounded", system-ui, sans-serif; }
+[data-font="mono"] .reader-body { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 
 /* Text size */
 :root[data-scale="s"] { --base-size: 14.5px; }
@@ -356,11 +356,15 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   max-width: 680px;
   width: 100%;
   margin: 0 auto;
+  /* Reader-scoped typography — changed only by the appearance sliders */
+  font-size: var(--reader-font-size, 16px);
+  line-height: var(--reader-line-height, 1.55);
+  letter-spacing: var(--reader-letter-spacing, 0em);
 }
 
 .reader-body h3 { font-size: 1.3rem; margin: 18px 0 10px; }
 
-.verse { margin: 0 0 0.4em; line-height: var(--line-height); letter-spacing: var(--letter-spacing); }
+.verse { margin: 0 0 0.4em; }
 .verse-num {
   font-size: 0.7em;
   font-weight: 700;
@@ -1343,3 +1347,74 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .thread-emoji-opt { font-size: 1.4rem; background: none; border: 1px solid transparent; border-radius: 6px; cursor: pointer; padding: 2px 4px; }
 .thread-emoji-opt.selected { border-color: var(--accent); background: var(--accent-bg); }
 
+
+/* ─── Profile Avatars ─────────────────────────────────────────────────────── */
+.avatar-circle {
+  width: 34px; height: 34px; border-radius: 50%; display: flex;
+  align-items: center; justify-content: center; font-size: 1rem;
+  background: var(--accent-bg); color: var(--accent); flex-shrink: 0;
+  border: 1.5px solid var(--border); user-select: none;
+}
+.avatar-circle.lg { width: 56px; height: 56px; font-size: 1.6rem; }
+.avatar-grid {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; margin: 10px 0;
+}
+.avatar-opt {
+  aspect-ratio: 1; border-radius: 50%; display: flex; align-items: center;
+  justify-content: center; font-size: 1.2rem; background: var(--accent-bg);
+  border: 2px solid transparent; cursor: pointer; transition: border-color 0.12s;
+}
+.avatar-opt.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-bg); }
+.avatar-opt:hover { border-color: var(--accent); opacity: 0.9; }
+
+/* ─── Report Button ───────────────────────────────────────────────────────── */
+.chat-msg-actions {
+  position: absolute; right: -34px; top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: 2px; opacity: 0; transition: opacity 0.15s;
+}
+.chat-bubble:hover .chat-msg-actions { opacity: 1; }
+.chat-report-btn {
+  background: none; border: none; cursor: pointer; color: var(--text-muted);
+  padding: 2px; width: 22px; height: 22px; display: flex; align-items: center;
+}
+.chat-report-btn:hover { color: var(--danger); }
+.chat-report-btn svg { width: 14px; height: 14px; }
+
+.report-modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 200;
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.report-modal {
+  background: var(--card-bg); border-radius: 16px; padding: 24px;
+  width: 100%; max-width: 380px; box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+}
+.report-modal h3 { margin: 0 0 12px; font-size: 1.05rem; }
+.report-reasons { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+.report-reason-btn {
+  text-align: left; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  font-size: 0.9rem; cursor: pointer; transition: background 0.1s;
+}
+.report-reason-btn:hover { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
+.report-reason-btn.selected { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+/* ─── Bible Verse Chips in Chat ──────────────────────────────────────────── */
+.verse-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--accent-bg); color: var(--accent); border-radius: 8px;
+  padding: 2px 8px; font-size: 0.82rem; font-weight: 600;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  cursor: pointer; margin: 0 2px; vertical-align: middle;
+  transition: background 0.1s;
+}
+.verse-chip:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.verse-chip svg { width: 12px; height: 12px; flex-shrink: 0; }
+
+/* ─── Book Picker (Onboarding) ───────────────────────────────────────────── */
+.book-picker { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-top: 8px; }
+.book-picker-label { font-size: 0.82rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 4px; }
+.book-picker-select { width: 100%; margin-bottom: 6px; }
+.book-picker-chapter { width: 80px; }
+.book-picker-result { font-size: 0.85rem; color: var(--success); margin: 8px 0 0; background: color-mix(in srgb, var(--success) 10%, transparent); padding: 6px 10px; border-radius: 8px; }
+.book-picker-notfound { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.book-picker-confirmed { font-weight: 700; padding: 8px 12px; border-radius: 10px; background: var(--accent-bg); color: var(--accent); display: flex; align-items: center; gap: 8px; margin-top: 8px; }

@@ -75,7 +75,7 @@ export function AppearanceControls({ showRedLetters = true }: { showRedLetters?:
       {/* ── Granular font size slider ────────────────────────────── */}
       <div className="setting-row" style={{ display: "block" }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-          <label style={{ fontWeight: 500, color: "var(--text-h)" }}>Font size</label>
+          <label style={{ fontWeight: 500, color: "var(--text-h)" }}>Bible reader font size</label>
           <span className="small muted">{settings.fontSize ?? 16}px</span>
         </div>
         <input
@@ -95,7 +95,7 @@ export function AppearanceControls({ showRedLetters = true }: { showRedLetters?:
       {/* ── Line height slider ───────────────────────────────────── */}
       <div className="setting-row" style={{ display: "block" }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-          <label style={{ fontWeight: 500, color: "var(--text-h)" }}>Line height</label>
+          <label style={{ fontWeight: 500, color: "var(--text-h)" }}>Bible reader line height</label>
           <span className="small muted">{(settings.lineHeight ?? 1.55).toFixed(2)}</span>
         </div>
         <input
@@ -115,7 +115,7 @@ export function AppearanceControls({ showRedLetters = true }: { showRedLetters?:
       {/* ── Letter spacing slider ────────────────────────────────── */}
       <div className="setting-row" style={{ display: "block" }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-          <label style={{ fontWeight: 500, color: "var(--text-h)" }}>Letter spacing</label>
+          <label style={{ fontWeight: 500, color: "var(--text-h)" }}>Bible reader letter spacing</label>
           <span className="small muted">{((settings.letterSpacing ?? 0) * 1000).toFixed(0)} ‰em</span>
         </div>
         <input

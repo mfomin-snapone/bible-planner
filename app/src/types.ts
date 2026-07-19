@@ -120,6 +120,7 @@ export const DEFAULT_SETTINGS: Settings = {
 export interface User {
   id: string;
   username: string;
+  avatar?: string;
 }
 
 // ─── Community / Chat types ──────────────────────────────────────────────────

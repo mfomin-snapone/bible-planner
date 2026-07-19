@@ -31,6 +31,7 @@ app.post("/api/auth/register", async (req, res) => {
       .trim()
       .toLowerCase();
     const password = String(req.body?.password ?? "");
+    const birthDate = String(req.body?.birthDate ?? "").trim();
 
     if (!USERNAME_RE.test(username)) {
       return res.status(400).json({
@@ -41,6 +42,18 @@ app.post("/api/auth/register", async (req, res) => {
       return res
         .status(400)
         .json({ error: "Password must be at least 8 characters." });
+    }
+    if (!birthDate) {
+      return res.status(400).json({ error: "Date of birth is required." });
+    }
+    const dob = new Date(birthDate);
+    if (isNaN(dob.getTime())) {
+      return res.status(400).json({ error: "Invalid date of birth." });
+    }
+    const ageMs = Date.now() - dob.getTime();
+    const ageYears = ageMs / (365.25 * 24 * 60 * 60 * 1000);
+    if (ageYears < 18) {
+      return res.status(400).json({ error: "You must be 18 or older to create an account." });
     }
 
     const existing = await db.execute({
@@ -53,11 +66,11 @@ app.post("/api/auth/register", async (req, res) => {
 
     const user = { id: crypto.randomUUID(), username };
     await db.execute({
-      sql: "INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)",
-      args: [user.id, username, await hashPassword(password), Date.now()],
+      sql: "INSERT INTO users (id, username, password_hash, birth_date, created_at) VALUES (?, ?, ?, ?, ?)",
+      args: [user.id, username, await hashPassword(password), birthDate, Date.now()],
     });
 
-    res.json({ token: signToken(user), user: { id: user.id, username } });
+    res.json({ token: signToken(user), user: { id: user.id, username, avatar: "default" } });
   } catch (err) {
     console.error("[register]", err);
     res.status(500).json({ error: "Unable to register right now." });
@@ -72,7 +85,7 @@ app.post("/api/auth/login", async (req, res) => {
     const password = String(req.body?.password ?? "");
 
     const result = await db.execute({
-      sql: "SELECT id, username, password_hash FROM users WHERE username = ?",
+      sql: "SELECT id, username, password_hash, avatar FROM users WHERE username = ?",
       args: [username],
     });
     const row = result.rows[0];
@@ -82,7 +95,7 @@ app.post("/api/auth/login", async (req, res) => {
     }
 
     const user = { id: String(row.id), username: String(row.username) };
-    res.json({ token: signToken(user), user });
+    res.json({ token: signToken(user), user: { ...user, avatar: String(row.avatar ?? "default") } });
   } catch (err) {
     console.error("[login]", err);
     res.status(500).json({ error: "Unable to log in right now." });
@@ -686,5 +699,139 @@ app.post("/api/notifications/read-all", requireAuth, async (req, res) => {
     await db.execute({ sql: "UPDATE notifications SET read = 1 WHERE user_id = ? AND read = 0", args: [req.userId] });
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: "Unable to mark read." }); }
+});
+
+// ─── User Profile ─────────────────────────────────────────────────────────────
+
+const VALID_AVATARS = [
+  "default", "menorah", "star", "fish", "olive",
+  "shofar", "dove", "scroll", "pomegranate", "grapes",
+  "lamb", "candles", "water", "aleph",
+];
+
+app.get("/api/users/me", requireAuth, async (req, res) => {
+  try {
+    const { rows } = await db.execute({
+      sql: "SELECT id, username, avatar FROM users WHERE id = ?",
+      args: [req.userId],
+    });
+    if (!rows[0]) return res.status(404).json({ error: "User not found." });
+    const r = rows[0];
+    res.json({ id: String(r.id), username: String(r.username), avatar: String(r.avatar ?? "default") });
+  } catch (err) { res.status(500).json({ error: "Unable to load profile." }); }
+});
+
+app.put("/api/users/me", requireAuth, async (req, res) => {
+  try {
+    const { avatar } = req.body ?? {};
+    if (avatar !== undefined && !VALID_AVATARS.includes(String(avatar))) {
+      return res.status(400).json({ error: "Invalid avatar choice." });
+    }
+    await db.execute({
+      sql: "UPDATE users SET avatar = COALESCE(?, avatar) WHERE id = ?",
+      args: [avatar ?? null, req.userId],
+    });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: "Unable to update profile." }); }
+});
+
+// ─── Report Messages ──────────────────────────────────────────────────────────
+
+app.post("/api/messages/:id/report", requireAuth, async (req, res) => {
+  try {
+    const msgId = req.params.id;
+    const reason = String(req.body?.reason ?? "").slice(0, 500);
+
+    const { rows: msgRows } = await db.execute({
+      sql: "SELECT sender_id, channel_id FROM messages WHERE id = ?",
+      args: [msgId],
+    });
+    if (!msgRows[0]) return res.status(404).json({ error: "Message not found." });
+    const { sender_id, channel_id } = msgRows[0];
+    if (!(await canAccessChannel(req.userId, String(channel_id)))) {
+      return res.status(403).json({ error: "Forbidden." });
+    }
+    if (String(sender_id) === req.userId) {
+      return res.status(400).json({ error: "Cannot report your own message." });
+    }
+
+    // Find target admin: group admin for group/thread channels, app admin for DMs
+    let targetAdminId = null;
+    const { rows: chanRows } = await db.execute({
+      sql: "SELECT type, group_id FROM channels WHERE id = ?",
+      args: [String(channel_id)],
+    });
+    const chan = chanRows[0];
+    if (chan && (String(chan.type) === "group" || String(chan.type) === "thread")) {
+      const { rows: adminRows } = await db.execute({
+        sql: "SELECT user_id FROM group_members WHERE group_id = ? AND role = 'admin' LIMIT 1",
+        args: [chan.group_id],
+      });
+      targetAdminId = adminRows[0]?.user_id ? String(adminRows[0].user_id) : null;
+    } else {
+      const { rows: appAdminRows } = await db.execute({
+        sql: "SELECT id FROM users WHERE is_admin = 1 LIMIT 1",
+        args: [],
+      });
+      targetAdminId = appAdminRows[0]?.id ? String(appAdminRows[0].id) : null;
+    }
+
+    await db.execute({
+      sql: `INSERT INTO reports (id, reporter_id, message_id, channel_id, reported_user_id, target_admin_id, reason, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [crypto.randomUUID(), req.userId, msgId, String(channel_id), String(sender_id), targetAdminId, reason, Date.now()],
+    });
+
+    // Notify the target admin via WS if available
+    if (targetAdminId) {
+      pushToUser(targetAdminId, "report:new", { messageId: msgId, reason, reporterUsername: req.username });
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[report]", err);
+    res.status(500).json({ error: "Unable to submit report." });
+  }
+});
+
+// ─── Admin Routes ─────────────────────────────────────────────────────────────
+
+app.get("/api/admin/reports", requireAuth, async (req, res) => {
+  try {
+    const { rows: adminCheck } = await db.execute({
+      sql: "SELECT is_admin FROM users WHERE id = ?", args: [req.userId],
+    });
+    if (!adminCheck[0]?.is_admin) return res.status(403).json({ error: "Forbidden." });
+
+    const { rows } = await db.execute({
+      sql: `SELECT r.id, r.status, r.reason, r.created_at,
+                   r.message_id, r.channel_id,
+                   u1.username as reporter_username,
+                   u2.username as reported_username,
+                   m.content as message_content
+            FROM reports r
+            JOIN users u1 ON r.reporter_id = u1.id
+            JOIN users u2 ON r.reported_user_id = u2.id
+            JOIN messages m ON r.message_id = m.id
+            ORDER BY r.created_at DESC LIMIT 100`,
+      args: [],
+    });
+    res.json({ reports: rows });
+  } catch (err) { res.status(500).json({ error: "Unable to load reports." }); }
+});
+
+/** One-time endpoint to grant admin — protected by a secret in env vars. */
+app.post("/api/admin/grant", async (req, res) => {
+  try {
+    const { username, secret } = req.body ?? {};
+    const adminSecret = process.env.ADMIN_SETUP_SECRET;
+    if (!adminSecret || String(secret) !== adminSecret) {
+      return res.status(403).json({ error: "Forbidden." });
+    }
+    const { rows } = await db.execute({ sql: "SELECT id FROM users WHERE username = ?", args: [String(username)] });
+    if (!rows[0]) return res.status(404).json({ error: "User not found." });
+    await db.execute({ sql: "UPDATE users SET is_admin = 1 WHERE username = ?", args: [String(username)] });
+    res.json({ ok: true, message: `${username} is now an admin.` });
+  } catch (err) { res.status(500).json({ error: "Unable to grant admin." }); }
 });
 

@@ -32,10 +32,10 @@ export default function App() {
       root.dataset.font = settings.font;
       root.dataset.scale = settings.scale;
       root.dataset.textAlign = settings.textAlign ?? "left";
-      // Granular typography overrides (inline style > data-scale CSS)
-      root.style.setProperty("--base-size", `${settings.fontSize ?? 16}px`);
-      root.style.setProperty("--line-height", `${settings.lineHeight ?? 1.55}`);
-      root.style.setProperty("--letter-spacing", `${settings.letterSpacing ?? 0}em`);
+      // Reader-scoped typography (these vars only affect .reader-body, not the whole app)
+      root.style.setProperty("--reader-font-size", `${settings.fontSize ?? 16}px`);
+      root.style.setProperty("--reader-line-height", `${settings.lineHeight ?? 1.55}`);
+      root.style.setProperty("--reader-letter-spacing", `${settings.letterSpacing ?? 0}em`);
     };
     apply();
     systemDark.addEventListener("change", apply);
@@ -50,6 +50,13 @@ export default function App() {
     settings.letterSpacing,
     settings.textAlign,
   ]);
+
+  // Navigate to Bible tab when openBibleRef is called
+  useEffect(() => {
+    const handler = () => setTab("bible");
+    window.addEventListener("navigate-bible", handler);
+    return () => window.removeEventListener("navigate-bible", handler);
+  }, []);
 
   // Connect WebSocket when signed in
   useEffect(() => {

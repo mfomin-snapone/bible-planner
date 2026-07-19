@@ -4,7 +4,9 @@ import { useAppState } from "../state/AppState";
 import { TRACKS, TRANSLATIONS, type Translation } from "../types";
 import { AppearanceControls } from "./AppearancePanel";
 import { AuthForm } from "./AuthScreen";
-import { ClockBackIcon } from "./icons";
+import { ClockBackIcon, UserCircleIcon } from "./icons";
+import { AVATAR_PRESETS, getAvatar } from "../lib/avatars";
+import { updateProfile } from "../lib/api";
 
 export function SettingsScreen() {
   const { plan, settings, progress, updateSettings, resetProgress } = useAppState();
@@ -205,17 +207,77 @@ export function SettingsScreen() {
 }
 
 function AccountCard() {
-  const { user, logout } = useAppState();
+  const { user, logout, updateSettings } = useAppState();
+  const [savingAvatar, setSavingAvatar] = useState(false);
+  const [avatarMsg, setAvatarMsg] = useState<string | null>(null);
+  const currentAvatar = user?.avatar ?? "default";
+
+  async function handleAvatarChange(id: string) {
+    if (!user) return;
+    setSavingAvatar(true);
+    setAvatarMsg(null);
+    try {
+      await updateProfile(id);
+      // Update local user record
+      updateSettings({}); // trigger re-render (user state is in AppState)
+      // Patch stored user
+      const raw = localStorage.getItem("bible-planner:user");
+      if (raw) {
+        const u = JSON.parse(raw) as { avatar?: string };
+        u.avatar = id;
+        localStorage.setItem("bible-planner:user", JSON.stringify(u));
+      }
+      setAvatarMsg("Avatar updated!");
+      setTimeout(() => setAvatarMsg(null), 2000);
+    } catch {
+      setAvatarMsg("Failed to save — try again.");
+    }
+    setSavingAvatar(false);
+  }
 
   if (user) {
+    const preset = getAvatar(currentAvatar);
     return (
       <div className="card">
         <div className="setting-row">
           <label>Signed in as</label>
-          <span className="muted">{user.username}</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span
+              className="avatar-circle"
+              style={{ background: preset.bg, color: preset.fg }}
+              aria-hidden
+            >
+              {preset.symbol}
+            </span>
+            <span className="muted">{user.username}</span>
+          </span>
         </div>
-        <p className="small muted" style={{ margin: "8px 0 12px" }}>
-          Your progress and settings sync to this account and follow you across devices.
+
+        <div style={{ paddingTop: 10 }}>
+          <p style={{ margin: "0 0 8px", fontWeight: 500, color: "var(--text-h)", display: "flex", alignItems: "center", gap: 6 }}>
+            <UserCircleIcon className="q-icon" /> Profile picture
+          </p>
+          <div className="avatar-grid">
+            {AVATAR_PRESETS.map((a) => (
+              <button
+                key={a.id}
+                className={`avatar-opt ${currentAvatar === a.id ? "selected" : ""}`}
+                style={{ background: a.bg, color: a.fg }}
+                title={a.label}
+                disabled={savingAvatar}
+                onClick={() => void handleAvatarChange(a.id)}
+                aria-label={a.label}
+                aria-pressed={currentAvatar === a.id}
+              >
+                {a.symbol}
+              </button>
+            ))}
+          </div>
+          {avatarMsg && <p className="small" style={{ margin: "6px 0 0", color: avatarMsg.startsWith("Failed") ? "var(--danger)" : "var(--success)" }}>{avatarMsg}</p>}
+        </div>
+
+        <p className="small muted" style={{ margin: "12px 0 12px" }}>
+          Your progress and settings sync to this account across all your devices.
         </p>
         <button className="btn btn-secondary btn-block" onClick={logout}>
           Sign Out

@@ -1,23 +1,101 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { Message, Reaction } from "../types";
-import { listMessages, sendMessage, getMyChannelKey, getMyGroupKey, toggleReaction } from "../lib/api";
+import { listMessages, sendMessage, toggleReaction, reportMessage, getMyChannelKey, getMyGroupKey } from "../lib/api";
 import { useAppState } from "../state/AppState";
 import { realtime } from "../lib/realtime";
-import {
-  getCachedChannelKey, cacheChannelKey,
-  loadKeyPair, decryptChannelKey, decryptMessage, encryptMessage,
-  type EncryptedMessage,
-} from "../lib/encryption";
-import { ArrowLeftIcon, LockIcon, SendIcon, SmileIcon, GifIcon } from "./icons";
+import { decryptMessage, getCachedChannelKey, cacheChannelKey, loadKeyPair, decryptChannelKey, type EncryptedMessage } from "../lib/encryption";
+import { ArrowLeftIcon, LockIcon, SendIcon, SmileIcon, GifIcon, FlagIcon, BookOpenIcon } from "./icons";
+import { getAvatar } from "../lib/avatars";
 
 const QUICK_REACTIONS = ["❤️", "🙏", "👍", "😂", "😮", "🔥", "✝️", "🕊️"];
 const GIPHY_KEY = import.meta.env.VITE_GIPHY_KEY as string | undefined;
+
+import { BIBLE_BOOKS } from "../lib/bibleBooks";
+
+// ─── Book name normalisation table ────────────────────────────────────────────
+const BOOK_ALIASES: Record<string, string> = {
+  gen:"Genesis",exod:"Exodus",exo:"Exodus",lev:"Leviticus",num:"Numbers",deut:"Deuteronomy",deu:"Deuteronomy",
+  josh:"Joshua",judg:"Judges",jdg:"Judges",ruth:"Ruth",
+  "1sam":"1 Samuel","2sam":"2 Samuel","1kgs":"1 Kings","2kgs":"2 Kings",
+  "1chr":"1 Chronicles","2chr":"2 Chronicles",ezra:"Ezra",neh:"Nehemiah",esth:"Esther",
+  job:"Job",ps:"Psalms",psa:"Psalms",psalm:"Psalms",psalms:"Psalms",
+  prov:"Proverbs",pro:"Proverbs",eccl:"Ecclesiastes",ecc:"Ecclesiastes",eccles:"Ecclesiastes",
+  song:"Song of Solomon",sos:"Song of Solomon",
+  isa:"Isaiah",jer:"Jeremiah",lam:"Lamentations",ezek:"Ezekiel",eze:"Ezekiel",
+  dan:"Daniel",hos:"Hosea",joel:"Joel",amos:"Amos",obad:"Obadiah",
+  jonah:"Jonah",jon:"Jonah",mic:"Micah",nah:"Nahum",hab:"Habakkuk",zeph:"Zephaniah",
+  hag:"Haggai",zech:"Zechariah",zec:"Zechariah",mal:"Malachi",
+  matt:"Matthew",mat:"Matthew",matthew:"Matthew",mark:"Mark",luke:"Luke",
+  john:"John",acts:"Acts",rom:"Romans",
+  "1cor":"1 Corinthians","2cor":"2 Corinthians",
+  gal:"Galatians",eph:"Ephesians",phil:"Philippians",col:"Colossians",
+  "1thess":"1 Thessalonians","2thess":"2 Thessalonians",
+  "1tim":"1 Timothy","2tim":"2 Timothy",titus:"Titus",philem:"Philemon",
+  heb:"Hebrews",jas:"James",
+  "1pet":"1 Peter","2pet":"2 Peter",
+  "1john":"1 John","2john":"2 John","3john":"3 John",
+  jude:"Jude",rev:"Revelation",
+};
+
+interface VerseRef {
+  display: string;
+  bookId: number;
+  chapter: number;
+}
+
+function parseVerseRef(text: string): VerseRef | null {
+  // Matches patterns like: "John 3:16", "Matt 28:18-20", "1 Cor 13:4-8", "Ps 23"
+  const m = text.match(
+    /\b((?:\d\s*)?[A-Za-z]+\.?)\s+(\d+)(?::(\d+)(?:-\d+)?)?\b/
+  );
+  if (!m) return null;
+  const rawBook = m[1].toLowerCase().replace(/\./g, "").replace(/\s+/g, "");
+  const chapter = parseInt(m[2], 10);
+  const canonical = BOOK_ALIASES[rawBook] ?? null;
+  if (!canonical) return null;
+  const bookEntry = BIBLE_BOOKS.find(
+    (b) => b.name.toLowerCase() === canonical.toLowerCase()
+  );
+  if (!bookEntry || chapter < 1 || chapter > bookEntry.chapters) return null;
+  return { display: m[0], bookId: bookEntry.id, chapter };
+}
+
+function renderWithVerseChips(
+  text: string,
+  onRef: (ref: VerseRef) => void,
+): React.ReactNode {
+  // Split on potential verse references
+  const pattern =
+    /\b((?:\d\s*)?[A-Za-z]+\.?)\s+(\d+)(?::(\d+)(?:-\d+)?)?\b/g;
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = pattern.exec(text)) !== null) {
+    const ref = parseVerseRef(m[0]);
+    if (ref) {
+      if (m.index > last) parts.push(text.slice(last, m.index));
+      parts.push(
+        <button
+          key={m.index}
+          className="verse-chip"
+          onClick={() => onRef(ref)}
+          title={`Open ${ref.display} in Bible`}
+        >
+          <BookOpenIcon />
+          {ref.display}
+        </button>
+      );
+      last = m.index + m[0].length;
+    }
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
 
 interface ChatViewProps {
   channelId: string;
   title: string;
   isGroup?: boolean;
-  /** For thread channels — which group's key to use. */
   groupId?: string;
   onBack: () => void;
 }
@@ -42,12 +120,18 @@ function isGifContent(s: string): { url: string } | null {
   return null;
 }
 
-export default function ChatView({ channelId, title, isGroup = false, groupId, onBack }: ChatViewProps) {
-  const { user } = useAppState();
+const REPORT_REASONS = [
+  "Harassment or bullying",
+  "Inappropriate content",
+  "Spam or off-topic",
+  "False information",
+  "Other",
+];
+
+export default function ChatView({ channelId, title, isGroup = false, onBack }: ChatViewProps) {
+  const { user, openBibleRef } = useAppState();
   const [messages, setMessages] = useState<Message[]>([]);
   const [decrypted, setDecrypted] = useState<Record<string, string>>({});
-  const [channelKey, setChannelKey] = useState<CryptoKey | null>(null);
-  const [encryptionReady, setEncryptionReady] = useState(false);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [loadingMsgs, setLoadingMsgs] = useState(true);
@@ -57,43 +141,45 @@ export default function ChatView({ channelId, title, isGroup = false, groupId, o
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [gifQuery, setGifQuery] = useState("");
   const [gifResults, setGifResults] = useState<{ url: string; preview: string }[]>([]);
+  const [reportTarget, setReportTarget] = useState<string | null>(null); // message id
+  const [reportReason, setReportReason] = useState("");
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportDone, setReportDone] = useState(false);
   const lastTypingRef = useRef<number>(0);
   const typingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // ── Load / decrypt channel key ──────────────────────────────────────────────
-  const setupKey = useCallback(async () => {
-    const cached = getCachedChannelKey(channelId);
-    if (cached) { setChannelKey(cached); setEncryptionReady(true); return; }
-    const pair = await loadKeyPair();
-    if (!pair) return;
-    try {
-      const fetchFn = isGroup ? () => getMyGroupKey(groupId ?? channelId) : () => getMyChannelKey(channelId);
-      const { encryptedKey } = await fetchFn();
-      if (!encryptedKey) return;
-      const key = await decryptChannelKey(encryptedKey, pair.privateKey);
-      cacheChannelKey(channelId, key);
-      setChannelKey(key);
-      setEncryptionReady(true);
-    } catch { /* */ }
-  }, [channelId, isGroup, groupId]);
-
-  // ── Decrypt messages ────────────────────────────────────────────────────────
-  const decryptAll = useCallback(async (msgs: Message[], key: CryptoKey | null) => {
-    const newDecrypted: Record<string, string> = {};
-    for (const m of msgs) {
-      if (decrypted[m.id]) { newDecrypted[m.id] = decrypted[m.id]; continue; }
-      const parsed = tryParseEncrypted(m.content);
-      if (!parsed) { newDecrypted[m.id] = m.content; continue; }
-      if (!key) { newDecrypted[m.id] = "🔒 Encrypted message"; continue; }
-      try { newDecrypted[m.id] = await decryptMessage(parsed, key); }
-      catch { newDecrypted[m.id] = "🔒 Unable to decrypt"; }
+  // ── Decrypt legacy encrypted messages (backward compat) ────────────────────
+  const tryDecryptLegacy = useCallback(async (msgs: Message[]) => {
+    const encryptedMsgs = msgs.filter((m) => tryParseEncrypted(m.content));
+    if (encryptedMsgs.length === 0) return;
+    let key = getCachedChannelKey(channelId) ?? null;
+    if (!key) {
+      try {
+        const pair = await loadKeyPair();
+        if (pair) {
+          const fetchFn = isGroup ? () => getMyGroupKey(channelId) : () => getMyChannelKey(channelId);
+          const { encryptedKey } = await fetchFn();
+          if (encryptedKey) {
+            key = await decryptChannelKey(encryptedKey, pair.privateKey);
+            cacheChannelKey(channelId, key);
+          }
+        }
+      } catch { /* key unavailable on this device */ }
     }
-    setDecrypted((prev) => ({ ...prev, ...newDecrypted }));
-  }, [decrypted]);
+    if (!key) return;
+    const newDecrypted: Record<string, string> = {};
+    for (const m of encryptedMsgs) {
+      const parsed = tryParseEncrypted(m.content);
+      if (!parsed) continue;
+      try { newDecrypted[m.id] = await decryptMessage(parsed, key); } catch { /* */ }
+    }
+    if (Object.keys(newDecrypted).length > 0) {
+      setDecrypted((prev) => ({ ...prev, ...newDecrypted }));
+    }
+  }, [channelId, isGroup]);
 
-  useEffect(() => { void setupKey(); }, [setupKey]);
-
+  // ── Load messages ───────────────────────────────────────────────────────────
   useEffect(() => {
     setLoadingMsgs(true);
     listMessages(channelId).then(({ messages: msgs }) => {
@@ -102,10 +188,10 @@ export default function ChatView({ channelId, title, isGroup = false, groupId, o
       for (const m of msgs) map[m.id] = m.reactions ?? [];
       setReactionsByMsg(map);
       setLoadingMsgs(false);
+      void tryDecryptLegacy(msgs);
     }).catch(() => setLoadingMsgs(false));
-  }, [channelId]);
+  }, [channelId, tryDecryptLegacy]);
 
-  useEffect(() => { void decryptAll(messages, channelKey); }, [messages, channelKey, decryptAll]);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages.length]);
 
   // ── Typing indicators ───────────────────────────────────────────────────────
@@ -186,10 +272,8 @@ export default function ChatView({ channelId, title, isGroup = false, groupId, o
     setText("");
     realtime.send({ event: "typing:stop", data: { channelId, username: user?.username ?? "" } });
     try {
-      const content = channelKey ? JSON.stringify(await encryptMessage(plain, channelKey)) : plain;
-      const msg = await sendMessage(channelId, content);
+      const msg = await sendMessage(channelId, plain);
       setMessages((prev) => prev.find((m) => m.id === msg.id) ? prev : [...prev, { ...msg, reactions: [] }]);
-      setDecrypted((prev) => ({ ...prev, [msg.id]: plain }));
       setReactionsByMsg((prev) => ({ ...prev, [msg.id]: [] }));
     } catch { setText(plain); }
     setSending(false);
@@ -200,10 +284,8 @@ export default function ChatView({ channelId, title, isGroup = false, groupId, o
     setSending(true);
     const plain = JSON.stringify({ type: "gif", url });
     try {
-      const content = channelKey ? JSON.stringify(await encryptMessage(plain, channelKey)) : plain;
-      const msg = await sendMessage(channelId, content);
+      const msg = await sendMessage(channelId, plain);
       setMessages((prev) => prev.find((m) => m.id === msg.id) ? prev : [...prev, { ...msg, reactions: [] }]);
-      setDecrypted((prev) => ({ ...prev, [msg.id]: plain }));
     } catch { /* ignore */ }
     setSending(false);
   }
@@ -225,6 +307,17 @@ export default function ChatView({ channelId, title, isGroup = false, groupId, o
     } catch { /* ignore */ }
   }
 
+  async function submitReport() {
+    if (!reportTarget || !reportReason) return;
+    setReportBusy(true);
+    try {
+      await reportMessage(reportTarget, reportReason);
+      setReportDone(true);
+      setTimeout(() => { setReportTarget(null); setReportReason(""); setReportDone(false); }, 1500);
+    } catch { /* ignore */ }
+    setReportBusy(false);
+  }
+
   const myId = user?.id;
   const typingNames = Object.values(typingUsers);
 
@@ -234,7 +327,7 @@ export default function ChatView({ channelId, title, isGroup = false, groupId, o
         <button className="chat-back-btn" onClick={onBack} aria-label="Back"><ArrowLeftIcon /></button>
         <div className="chat-header-info">
           <span className="chat-title">{title}</span>
-          <span className="chat-e2e-badge"><LockIcon className="chat-lock-icon" />End-to-end encrypted</span>
+          <span className="chat-e2e-badge"><LockIcon className="chat-lock-icon" />Secure</span>
         </div>
       </div>
 
@@ -243,7 +336,7 @@ export default function ChatView({ channelId, title, isGroup = false, groupId, o
         {!loadingMsgs && messages.length === 0 && <p className="chat-empty">No messages yet. Say hello!</p>}
         {messages.map((m) => {
           const isMine = m.senderId === myId;
-          const rawBody = decrypted[m.id] ?? (tryParseEncrypted(m.content) ? "🔒 Encrypted" : m.content);
+          const rawBody = decrypted[m.id] ?? (tryParseEncrypted(m.content) ? "🔒 [encrypted — sent from another device]" : m.content);
           const gif = isGifContent(rawBody);
           const reactions = reactionsByMsg[m.id] ?? [];
           const grouped: Record<string, { count: number; mine: boolean }> = {};
@@ -252,19 +345,35 @@ export default function ChatView({ channelId, title, isGroup = false, groupId, o
             grouped[r.emoji].count++;
             if (r.userId === myId) grouped[r.emoji].mine = true;
           }
+          const senderAvatar = getAvatar((m as Message & { senderAvatar?: string }).senderAvatar);
           return (
             <div key={m.id} className={`chat-bubble-row ${isMine ? "chat-mine" : "chat-theirs"}`}>
-              {!isMine && <span className="chat-avatar">{m.senderUsername.charAt(0).toUpperCase()}</span>}
+              {!isMine && (
+                <span
+                  className="chat-avatar"
+                  style={{ background: senderAvatar.bg, color: senderAvatar.fg }}
+                  title={m.senderUsername}
+                >
+                  {senderAvatar.id === "default" ? m.senderUsername.charAt(0).toUpperCase() : senderAvatar.symbol}
+                </span>
+              )}
               <div className="chat-bubble-wrap">
                 <div className={`chat-bubble ${isMine ? "chat-bubble-mine" : "chat-bubble-theirs"}`}>
                   {!isMine && <span className="chat-sender">{m.senderUsername}</span>}
                   {gif
                     ? <img src={gif.url} alt="GIF" className="chat-gif" loading="lazy" />
-                    : <span className="chat-body">{rawBody}</span>}
+                    : <span className="chat-body">{renderWithVerseChips(rawBody, (ref) => { openBibleRef(ref.bookId, ref.chapter); onBack(); })}</span>}
                   <span className="chat-time">{formatTime(m.sentAt)}</span>
-                  <button className="chat-react-btn" onClick={(e) => { e.stopPropagation(); setPickerFor(pickerFor === m.id ? null : m.id); }} aria-label="React">
-                    <SmileIcon />
-                  </button>
+                  <div className="chat-msg-actions">
+                    <button className="chat-react-btn" onClick={(e) => { e.stopPropagation(); setPickerFor(pickerFor === m.id ? null : m.id); }} aria-label="React">
+                      <SmileIcon />
+                    </button>
+                    {!isMine && (
+                      <button className="chat-report-btn" onClick={(e) => { e.stopPropagation(); setReportTarget(m.id); setReportReason(""); }} aria-label="Report message" title="Report">
+                        <FlagIcon />
+                      </button>
+                    )}
+                  </div>
                   {pickerFor === m.id && (
                     <div className="reaction-picker" onClick={(e) => e.stopPropagation()}>
                       {QUICK_REACTIONS.map((emoji) => (
@@ -329,7 +438,7 @@ export default function ChatView({ channelId, title, isGroup = false, groupId, o
           className="chat-input"
           value={text}
           onChange={handleInputChange}
-          placeholder={encryptionReady ? "Message…" : "Message (unencrypted — set up keys in Settings)"}
+          placeholder="Message…"
           maxLength={4000}
           disabled={sending}
         />
@@ -337,6 +446,41 @@ export default function ChatView({ channelId, title, isGroup = false, groupId, o
           <SendIcon />
         </button>
       </form>
+
+      {/* Report modal */}
+      {reportTarget && (
+        <div className="report-modal-backdrop" onClick={() => { setReportTarget(null); setReportReason(""); }}>
+          <div className="report-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Report Message</h3>
+            {reportDone ? (
+              <p style={{ color: "var(--success)", fontWeight: 600 }}>✓ Report submitted. Thank you.</p>
+            ) : (
+              <>
+                <p className="small muted" style={{ margin: "0 0 4px" }}>Select a reason:</p>
+                <div className="report-reasons">
+                  {REPORT_REASONS.map((r) => (
+                    <button
+                      key={r}
+                      className={`report-reason-btn ${reportReason === r ? "selected" : ""}`}
+                      onClick={() => setReportReason(r)}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                  <button className="btn" disabled={!reportReason || reportBusy} onClick={() => void submitReport()}>
+                    {reportBusy ? "Sending…" : "Submit Report"}
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => { setReportTarget(null); setReportReason(""); }}>
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

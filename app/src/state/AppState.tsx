@@ -68,9 +68,10 @@ interface AppStateValue {
   /** Update a study-question answer. key = `"day:questionIndex"`. */
   updateAnswer: (key: string, html: string) => void;
   resetProgress: () => void;
-  register: (username: string, password: string) => Promise<void>;
+  register: (username: string, password: string, birthDate: string) => Promise<void>;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
+  openBibleRef: (bookId: number, chapter: number) => void;
 }
 
 const AppStateContext = createContext<AppStateValue | null>(null);
@@ -224,8 +225,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   );
 
   const register = useCallback(
-    async (username: string, password: string) => {
-      const { token, user: nextUser } = await apiRegister(username, password);
+    async (username: string, password: string, birthDate: string) => {
+      const { token, user: nextUser } = await apiRegister(username, password, birthDate);
       await adoptSession(token, nextUser);
     },
     [adoptSession],
@@ -243,6 +244,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(SKIP_AUTH_KEY, "1");
     setSkippedAuth(true);
   }, []);
+
+  const openBibleRef = useCallback((bookId: number, chapter: number) => {
+    updateSettings({ lastBookId: bookId, lastChapter: chapter });
+    window.dispatchEvent(new CustomEvent("navigate-bible"));
+  }, [updateSettings]);
 
   const logout = useCallback(() => {
     clearSession();
@@ -269,6 +275,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     register,
     login,
     logout,
+    openBibleRef,
   };
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
