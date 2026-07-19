@@ -1390,6 +1390,9 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 }
 .notif-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
 .notif-item.notif-unread { background: var(--accent-bg); }
+.notif-item.notif-item-nav { cursor: pointer; }
+.notif-item.notif-item-nav:hover { background: var(--hover-bg, color-mix(in srgb, var(--accent) 10%, transparent)); }
+.notif-preview { color: var(--text-muted); font-style: italic; }
 .notif-icon { font-size: 1.1rem; margin-top: 2px; flex-shrink: 0; }
 .notif-body { display: flex; flex-direction: column; gap: 2px; font-size: 0.85rem; }
 .notif-time { font-size: 0.75rem; color: var(--text-muted); }

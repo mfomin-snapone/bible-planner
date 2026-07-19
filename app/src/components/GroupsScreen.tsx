@@ -148,17 +148,48 @@ export default function GroupsScreen() {
                   <button className="link-btn small" onClick={() => setShowNotifs(false)}>Close</button>
                 </div>
                 {notifications.length === 0 && <p className="notif-empty">No notifications yet.</p>}
-                {notifications.slice(0, 20).map((n) => (
-                  <div key={n.id} className={`notif-item ${n.read ? "" : "notif-unread"}`}>
-                    <span className="notif-icon">{n.type === "reaction" ? "❤️" : n.type === "message" ? "💬" : "👥"}</span>
-                    <div className="notif-body">
-                      {n.type === "reaction" && <span>{ (n.data.fromUsername as string) } reacted {n.data.emoji as string} to your message</span>}
-                      {n.type === "message" && <span>{ (n.data.fromUsername as string) } sent a message</span>}
-                      {n.type === "group_join" && <span>Someone joined your group</span>}
-                      <span className="notif-time">{formatRelativeTime(n.createdAt)}</span>
+                {notifications.slice(0, 20).map((n) => {
+                  const canNav = !!(n.channelId && (n.type === "message" || n.type === "reaction"));
+                  const channelTitle = n.data.channelTitle
+                    ? String(n.data.channelTitle)
+                    : `@${String(n.data.fromUsername ?? "")}`;
+                  return (
+                    <div
+                      key={n.id}
+                      className={`notif-item ${n.read ? "" : "notif-unread"}${canNav ? " notif-item-nav" : ""}`}
+                      role={canNav ? "button" : undefined}
+                      tabIndex={canNav ? 0 : undefined}
+                      onClick={() => {
+                        if (!canNav) return;
+                        setShowNotifs(false);
+                        setNotifications((prev) => prev.map((x) => x.id === n.id ? { ...x, read: true } : x));
+                        markNotificationsRead().catch(() => {});
+                        setView({
+                          kind: "chat",
+                          channelId: n.channelId!,
+                          title: channelTitle,
+                          isGroup: Boolean(n.data.isGroup),
+                        });
+                      }}
+                    >
+                      <span className="notif-icon">{n.type === "reaction" ? "❤️" : n.type === "message" ? "💬" : "👥"}</span>
+                      <div className="notif-body">
+                        {n.type === "reaction" && (
+                          <span><b>{n.data.fromUsername as string}</b> reacted {n.data.emoji as string} to your message</span>
+                        )}
+                        {n.type === "message" && (
+                          <span>
+                            <b>{n.data.fromUsername as string}</b>
+                            {n.data.channelTitle ? <> in <b>{n.data.channelTitle as string}</b></> : ""}
+                            {n.data.preview ? <>: <span className="notif-preview">{String(n.data.preview).slice(0, 60)}</span></> : " sent a message"}
+                          </span>
+                        )}
+                        {n.type === "group_join" && <span>Someone joined your group</span>}
+                        <span className="notif-time">{formatRelativeTime(n.createdAt)}</span>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

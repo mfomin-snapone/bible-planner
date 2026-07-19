@@ -569,6 +569,17 @@ app.post("/api/channels/:id/messages", requireAuth, async (req, res) => {
       sql: `SELECT gm.user_id FROM channels c JOIN group_members gm ON gm.group_id = c.group_id
             WHERE c.id = ?`, args: [channelId],
     });
+    // Resolve channel title (thread name, group name, or null for DMs)
+    const { rows: chRows } = await db.execute({
+      sql: `SELECT c.type, COALESCE(t.name, g.name) AS title
+            FROM channels c
+            LEFT JOIN threads t ON t.channel_id = c.id
+            LEFT JOIN groups g ON g.id = c.group_id
+            WHERE c.id = ?`,
+      args: [channelId],
+    });
+    const channelTitle = chRows[0] && chRows[0].title ? String(chRows[0].title) : null;
+    const isGroup = chRows[0] ? String(chRows[0].type) !== "dm" : false;
     const recipients = new Set([...dmParts, ...gParts].map((r) => String(r.user_id)));
     for (const uid of recipients) {
       pushToUser(uid, "message:new", msg);
@@ -576,9 +587,9 @@ app.post("/api/channels/:id/messages", requireAuth, async (req, res) => {
         const nid = crypto.randomUUID();
         await db.execute({
           sql: "INSERT INTO notifications (id, user_id, type, channel_id, data, created_at) VALUES (?, ?, 'message', ?, ?, ?)",
-          args: [nid, uid, channelId, JSON.stringify({ fromUsername: req.username, preview: content.slice(0, 80) }), sentAt],
+          args: [nid, uid, channelId, JSON.stringify({ fromUsername: req.username, preview: content.slice(0, 80), channelTitle, isGroup }), sentAt],
         }).catch(() => {});
-        pushToUser(uid, "notification:new", { type: "message", channelId, fromUsername: req.username });
+        pushToUser(uid, "notification:new", { type: "message", channelId, fromUsername: req.username, channelTitle, isGroup });
       }
     }
     res.json(msg);
