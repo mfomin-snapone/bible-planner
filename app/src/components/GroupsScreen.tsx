@@ -100,7 +100,7 @@ export default function GroupsScreen() {
         title={view.title}
         isGroup={view.isGroup}
         groupId={view.groupId}
-        onBack={() => setView({ kind: "list" })}
+        onBack={() => setView(view.groupId ? { kind: "detail", groupId: view.groupId } : { kind: "list" })}
       />
     );
   }
@@ -281,7 +281,18 @@ export default function GroupsScreen() {
 
 // ─── Create Group ─────────────────────────────────────────────────────────────
 
-const GROUP_EMOJIS = ["📖", "🙏", "✝️", "🕊️", "⭐", "📿", "🌿", "🔥", "💒", "👥", "📚", "🎶", "🌅", "❤️", "🌟", "🗣️", "🌾", "⚡"];
+/** Shared icon palette for group and thread pickers — one big list rather than two small, near-duplicate ones. */
+const ICON_EMOJIS = [
+  "💬", "📖", "🙏", "❤️", "✝️", "✡️", "🕎", "🕊️",
+  "⭐", "🌟", "✨", "💡", "🔥", "⚡", "💧", "🌈",
+  "📝", "🗣️", "📌", "🎯", "❓", "❗", "✅",
+  "🌿", "🌾", "🌸", "🌻", "🌳", "🌊", "☀️", "🌙", "🌅",
+  "📜", "📿", "⛪", "🛡️", "👑", "🔑", "🏠", "⛺", "🎁",
+  "🍞", "🍇", "🐑", "🐟", "🕯️", "☮️",
+  "🎶", "🎵", "📚", "🗓️",
+  "🤝", "🙌", "👋", "👥",
+  "😀", "😊", "😂", "🤔", "😢", "😮", "🎉", "🥳", "💕",
+];
 
 function CreateGroupView({ onBack, onCreate }: { onBack: () => void; onCreate: () => void }) {
   const { settings, user } = useAppState();
@@ -337,7 +348,7 @@ function CreateGroupView({ onBack, onCreate }: { onBack: () => void; onCreate: (
             </button>
             {editingIcon && (
               <div className="thread-emoji-picker">
-                {GROUP_EMOJIS.map((e) => (
+                {ICON_EMOJIS.map((e) => (
                   <button key={e} type="button" className={`thread-emoji-opt ${e === icon ? "selected" : ""}`}
                     onClick={() => { setIcon(e); setEditingIcon(false); }}>
                     {e}
@@ -903,7 +914,7 @@ function GroupSettingsSheet({
               </button>
               {editingIcon && (
                 <div className="thread-emoji-picker">
-                  {GROUP_EMOJIS.map((e) => (
+                  {ICON_EMOJIS.map((e) => (
                     <button key={e} type="button" className={`thread-emoji-opt ${e === icon ? "selected" : ""}`}
                       onClick={() => { setIcon(e); setEditingIcon(false); }}>
                       {e}
@@ -1020,7 +1031,6 @@ function GroupSettingsSheet({
 
 // ─── Thread Modal (create or edit) ────────────────────────────────────────────
 
-const THREAD_EMOJIS = ["💬", "📖", "🙏", "❤️", "✝️", "🕊️", "🌟", "💡", "🔥", "📝", "🗣️", "👥", "📌", "🎯", "❓", "🌿", "⚡", "🎵"];
 
 function ThreadModal({ groupId, thread, onClose, onSaved, onDeleted }: {
   groupId: string;
@@ -1080,7 +1090,7 @@ function ThreadModal({ groupId, thread, onClose, onSaved, onDeleted }: {
             </button>
             {editingEmoji && (
               <div className="thread-emoji-picker">
-                {THREAD_EMOJIS.map((e) => (
+                {ICON_EMOJIS.map((e) => (
                   <button key={e} type="button" className={`thread-emoji-opt ${e === emoji ? "selected" : ""}`}
                     onClick={() => { setEmoji(e); setEditingEmoji(false); }}>
                     {e}

@@ -1564,8 +1564,9 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 
 .reaction-picker {
   position: absolute; bottom: calc(100% + 8px); left: 0;
-  background: var(--card-bg); border: 1px solid var(--border); border-radius: 24px;
-  padding: 6px 10px; display: flex; gap: 4px; box-shadow: var(--shadow); z-index: 50;
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px;
+  padding: 6px 8px; display: flex; flex-wrap: wrap; gap: 2px; box-shadow: var(--shadow); z-index: 50;
+  width: 216px;
 }
 .chat-mine .reaction-picker { left: auto; right: 0; }
 .reaction-pick-btn { font-size: 1.3rem; background: none; border: none; cursor: pointer; padding: 4px; transition: transform 0.1s; }
@@ -1658,6 +1659,7 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .thread-modal {
   background: var(--card-bg); border-radius: 16px; padding: 24px; width: 100%; max-width: 400px;
   box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+  max-height: 85vh; overflow-y: auto;
 }
 .thread-modal-title { font-size: 1.1rem; font-weight: 700; margin: 0 0 16px; color: var(--text-h); }
 .thread-emoji-row { display: flex; align-items: center; gap: 10px; }
@@ -1772,3 +1774,71 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   transition: background 0.1s;
 }
 .custom-q-remove:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }
+
+/* ─── Plan day selection / export ────────────────────────────────────────── */
+.plan-select-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+.plan-select-toolbar .small { color: var(--text-muted); }
+.plan-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.plan-filter-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.plan-filter-row input { font-size: 0.85rem; padding: 6px 8px; }
+.plan-filter-day-num { width: 70px; }
+.plan-row-checkbox { width: 24px; height: 24px; color: var(--border); flex-shrink: 0; }
+.plan-row-checkbox.checked { color: var(--success); }
+.plan-export-bar {
+  position: sticky;
+  bottom: calc(66px + env(safe-area-inset-bottom));
+  display: flex;
+  justify-content: center;
+  padding: 10px 0;
+  z-index: 15;
+}
+
+.export-preview { max-width: 720px; margin: 0 auto; padding: 16px; }
+.export-toolbar { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 18px; }
+.export-doc-title { font-size: 1.4rem; margin: 0 0 4px; color: var(--text-h); }
+.export-doc-subtitle { color: var(--text-muted); font-size: 0.9rem; margin: 0 0 24px; }
+.export-day {
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+}
+.export-day:first-of-type { border-top: none; }
+.export-day-title { font-size: 1.1rem; margin: 0; color: var(--text-h); }
+.export-day-date { font-weight: 400; color: var(--text-muted); font-size: 0.85rem; }
+.export-day-theme { font-size: 1.25rem; margin: 4px 0 6px; color: var(--text-h); }
+.export-day-refs { font-weight: 600; color: var(--accent); margin: 0 0 12px; }
+.export-questions { display: flex; flex-direction: column; gap: 14px; }
+.export-question-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); }
+.export-question-text { font-weight: 600; color: var(--text-h); margin: 2px 0 6px; }
+.export-answer { color: var(--text); line-height: 1.5; }
+.export-answer em { color: var(--text-muted); }
+
+@media print {
+  .tab-bar, .no-print { display: none !important; }
+  .export-preview, .export-preview * {
+    color: #111 !important;
+    background: #fff !important;
+    box-shadow: none !important;
+  }
+  .export-day-refs, .export-question-label { color: #333 !important; }
+  .export-day { break-inside: avoid; }
+}

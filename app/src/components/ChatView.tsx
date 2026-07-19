@@ -9,7 +9,7 @@ import { getAvatar } from "../lib/avatars";
 import { AvatarDisplay } from "../lib/AvatarIcon";
 import { ReaderOverlay, type ReaderRequest } from "./ReaderOverlay";
 
-const QUICK_REACTIONS = ["❤️", "🙏", "👍", "😂", "😮", "🔥", "✝️", "🕊️"];
+const QUICK_REACTIONS = ["❤️", "🙏", "👍", "👎", "😂", "😮", "😢", "🔥", "✝️", "🕊️", "🎉", "👏", "😊", "🤔", "💯", "🙌"];
 const GIPHY_KEY = import.meta.env.VITE_GIPHY_KEY as string | undefined;
 
 import { BIBLE_BOOKS } from "../lib/bibleBooks";

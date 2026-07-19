@@ -4,6 +4,7 @@
  * All other templates generate simplified daily reading schedules.
  */
 import { BIBLE_BOOKS, type BibleBook } from "./bibleBooks";
+import { themeForBook } from "./bookThemes";
 import type { PlanDay, Question } from "../types";
 
 export interface PlanTemplate {
@@ -96,6 +97,7 @@ function chunkArray<T>(arr: T[], chunkSize: number): T[][] {
 interface ChapterRef {
   book: string;
   ch: number;
+  id?: number;
 }
 
 /**
@@ -181,7 +183,7 @@ export function generateQuestions(day: number, ref: string): Question[] {
 function generateNT90(): PlanDay[] {
   const chapters = BIBLE_BOOKS
     .filter((b) => b.id >= 40)
-    .flatMap((b) => Array.from({ length: b.chapters }, (_, i) => ({ book: b.name, ch: i + 1 })));
+    .flatMap((b) => Array.from({ length: b.chapters }, (_, i) => ({ book: b.name, ch: i + 1, id: b.id })));
   const perDay = Math.ceil(chapters.length / 90);
   return chunkArray(chapters, perDay).slice(0, 90).map((refs, i) => {
     const brit_chadashah = formatChapterRefs(refs);
@@ -191,7 +193,7 @@ function generateNT90(): PlanDay[] {
       psalm: "",
       proverbs: "",
       brit_chadashah,
-      theme: refs[0]?.book ?? "",
+      theme: themeForBook(refs[0]?.id, brit_chadashah),
       questions: generateQuestions(i + 1, brit_chadashah),
     };
   });
@@ -201,7 +203,7 @@ function generateNT90(): PlanDay[] {
 function generateTorah50(): PlanDay[] {
   const chapters = BIBLE_BOOKS
     .filter((b) => b.id <= 5)
-    .flatMap((b) => Array.from({ length: b.chapters }, (_, i) => ({ book: b.name, ch: i + 1 })));
+    .flatMap((b) => Array.from({ length: b.chapters }, (_, i) => ({ book: b.name, ch: i + 1, id: b.id })));
   const perDay = Math.ceil(chapters.length / 50);
   return chunkArray(chapters, perDay).slice(0, 50).map((refs, i) => {
     const tanakh = formatChapterRefs(refs);
@@ -211,7 +213,7 @@ function generateTorah50(): PlanDay[] {
       psalm: "",
       proverbs: "",
       brit_chadashah: "",
-      theme: refs[0]?.book ?? "",
+      theme: themeForBook(refs[0]?.id, tanakh),
       questions: generateQuestions(i + 1, tanakh),
     };
   });
@@ -230,7 +232,7 @@ function generatePsalms30(): PlanDay[] {
       psalm,
       proverbs: proverbsRef,
       brit_chadashah: "",
-      theme: `Day ${i + 1} — Psalms ${i * 5 + 1}–${i * 5 + 5}`,
+      theme: themeForBook(19, `Psalms ${i * 5 + 1}–${i * 5 + 5}`),
       questions: generateQuestions(i + 1, `${psalm} and ${proverbsRef}`),
     };
   });
@@ -239,7 +241,7 @@ function generatePsalms30(): PlanDay[] {
 /** Whole Bible (Genesis–Revelation) in 365 days */
 function generateWholeBible1yr(): PlanDay[] {
   const chapters = BIBLE_BOOKS
-    .flatMap((b) => Array.from({ length: b.chapters }, (_, i) => ({ book: b.name, ch: i + 1, nt: b.id >= 40 })));
+    .flatMap((b) => Array.from({ length: b.chapters }, (_, i) => ({ book: b.name, ch: i + 1, id: b.id, nt: b.id >= 40 })));
   const perDay = Math.ceil(chapters.length / 365);
   return chunkArray(chapters, perDay).slice(0, 365).map((refs, i) => {
     const tanakh = formatChapterRefs(refs.filter((r) => !r.nt));
@@ -251,7 +253,7 @@ function generateWholeBible1yr(): PlanDay[] {
       psalm: "",
       proverbs: "",
       brit_chadashah: nt,
-      theme: `${first?.book ?? ""} ${first?.ch ?? ""}`,
+      theme: themeForBook(first?.id, tanakh || nt),
       questions: generateQuestions(i + 1, tanakh || nt),
     };
   });
@@ -265,7 +267,7 @@ export function generateCustomPlan(
 ): PlanDay[] {
   const allChapters = BIBLE_BOOKS
     .filter((b) => bookIds.includes(b.id))
-    .flatMap((b) => Array.from({ length: b.chapters }, (_, i) => ({ book: b.name, ch: i + 1, nt: b.id >= 40 })));
+    .flatMap((b) => Array.from({ length: b.chapters }, (_, i) => ({ book: b.name, ch: i + 1, id: b.id, nt: b.id >= 40 })));
 
   const chunks = chunkArray(allChapters, chaptersPerDay);
   return chunks.map((refs, i) => {
@@ -277,7 +279,7 @@ export function generateCustomPlan(
       psalm: "",
       proverbs: "",
       brit_chadashah: nt,
-      theme: refs[0] ? `${refs[0].book} ${refs[0].ch}` : "",
+      theme: refs[0] ? themeForBook(refs[0].id, `${refs[0].book} ${refs[0].ch}`) : "",
       questions: generateQuestions(i + 1, tanakh || nt),
     };
   });
@@ -291,7 +293,7 @@ export function generateCustomPlan(
 function generateFourPlusOne(): PlanDay[] {
   const DAYS = 365;
   const chapterList = (books: BibleBook[]) =>
-    books.flatMap((b) => Array.from({ length: b.chapters }, (_, i) => ({ book: b.name, ch: i + 1 })));
+    books.flatMap((b) => Array.from({ length: b.chapters }, (_, i) => ({ book: b.name, ch: i + 1, id: b.id })));
 
   const torahHistory = chapterList(BIBLE_BOOKS.filter((b) => b.id <= 17));
   const prophetsWisdom = chapterList(BIBLE_BOOKS.filter((b) => b.id === 18 || (b.id >= 20 && b.id <= 39)));
@@ -315,7 +317,7 @@ function generateFourPlusOne(): PlanDay[] {
       psalm: `Psalms ${(i % 150) + 1}`,
       proverbs: "",
       brit_chadashah: nt,
-      theme: first ? `${first.book} ${first.ch}` : "",
+      theme: first ? themeForBook(first.id, `${first.book} ${first.ch}`) : "",
       questions: generateQuestions(i + 1, tanakh || nt),
     };
   });
