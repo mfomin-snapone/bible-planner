@@ -83,7 +83,7 @@ export function PlanScreen() {
             day={day}
             settings={settings}
             isToday={day.day === today}
-            completed={TRACKS.filter((t) => progress.has(progressKey(day.day, t))).length}
+            completed={TRACKS.filter((t) => progress.has(progressKey(settings.planTemplateId, day.day, t))).length}
             onOpen={() => setOpenDay(day.day)}
           />
         ))}
@@ -122,7 +122,7 @@ function PlanRow({
         <br />
         <span className="plan-row-sub">
           {dateLabel && <span className="plan-row-date">{dateLabel} · </span>}
-          {day.tanakh} · {day.psalm} · {day.proverbs} · {day.brit_chadashah}
+          {[day.tanakh, day.psalm, day.proverbs, day.brit_chadashah].filter(Boolean).join(" · ")}
         </span>
       </span>
     </button>

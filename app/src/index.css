@@ -46,6 +46,7 @@
 
 :root[data-theme="dark"],
 :root[data-theme="blue"],
+:root[data-theme="charcoal"],
 :root[data-theme="amoled"] {
   color-scheme: dark;
   --text: #b6bac4;
@@ -73,6 +74,16 @@
   --border: #27395a;
 }
 
+/* Charcoal — neutral gray, less blue-tinted than Dark, not as stark as AMOLED. */
+:root[data-theme="charcoal"] {
+  --text: #b9b9bb;
+  --text-h: #f1f1f2;
+  --text-muted: #86868a;
+  --bg: #18181a;
+  --card-bg: #212123;
+  --border: #302f32;
+}
+
 /* AMOLED — true black; neutral surfaces darken, text stays put. */
 :root[data-theme="amoled"] {
   --bg: #000000;
@@ -88,11 +99,11 @@
 :root[data-accent="teal"] { --accent: #217f80; --accent-bg: rgba(33, 127, 128, 0.1); }
 :root[data-accent="amber"] { --accent: #a1701a; --accent-bg: rgba(161, 112, 26, 0.11); }
 
-:root:is([data-theme="dark"], [data-theme="blue"], [data-theme="amoled"])[data-accent="olive"] { --accent: #b4c383; --accent-contrast: #1a2008; }
-:root:is([data-theme="dark"], [data-theme="blue"], [data-theme="amoled"])[data-accent="purple"] { --accent: #c1a1e6; --accent-contrast: #221139; }
-:root:is([data-theme="dark"], [data-theme="blue"], [data-theme="amoled"])[data-accent="crimson"] { --accent: #ee94a0; --accent-contrast: #3b0f16; }
-:root:is([data-theme="dark"], [data-theme="blue"], [data-theme="amoled"])[data-accent="teal"] { --accent: #7fc9ca; --accent-contrast: #0a2c2c; }
-:root:is([data-theme="dark"], [data-theme="blue"], [data-theme="amoled"])[data-accent="amber"] { --accent: #dfb46b; --accent-contrast: #33220a; }
+:root:is([data-theme="dark"], [data-theme="blue"], [data-theme="charcoal"], [data-theme="amoled"])[data-accent="olive"] { --accent: #b4c383; --accent-contrast: #1a2008; }
+:root:is([data-theme="dark"], [data-theme="blue"], [data-theme="charcoal"], [data-theme="amoled"])[data-accent="purple"] { --accent: #c1a1e6; --accent-contrast: #221139; }
+:root:is([data-theme="dark"], [data-theme="blue"], [data-theme="charcoal"], [data-theme="amoled"])[data-accent="crimson"] { --accent: #ee94a0; --accent-contrast: #3b0f16; }
+:root:is([data-theme="dark"], [data-theme="blue"], [data-theme="charcoal"], [data-theme="amoled"])[data-accent="teal"] { --accent: #7fc9ca; --accent-contrast: #0a2c2c; }
+:root:is([data-theme="dark"], [data-theme="blue"], [data-theme="charcoal"], [data-theme="amoled"])[data-accent="amber"] { --accent: #dfb46b; --accent-contrast: #33220a; }
 
 /* Font choices — scoped to Bible reader only */
 [data-font="serif"] .reader-body { font-family: "New York", ui-serif, Georgia, "Times New Roman", serif; }
@@ -279,9 +290,14 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 0;
+  padding: 12px 16px;
+  margin: 0 -16px;
+  transition: background 0.15s;
 }
 .reading-row + .reading-row { border-top: 1px solid var(--border); }
+.reading-row.done {
+  background: color-mix(in srgb, var(--success) 9%, transparent);
+}
 
 .reading-main {
   display: flex;
@@ -295,10 +311,31 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 
 .reading-track { font-size: 0.75rem; color: var(--text-muted); }
 .reading-ref { font-weight: 600; color: var(--text-h); }
+.reading-row.done .reading-ref {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--success) 55%, transparent);
+  text-decoration-thickness: 1.5px;
+}
+.reading-row.done .reading-track { color: color-mix(in srgb, var(--success) 70%, var(--text-muted)); }
 
-.check-btn { color: var(--border); flex-shrink: 0; }
-.check-btn svg { width: 26px; height: 26px; display: block; }
-.check-btn.done { color: var(--accent); }
+.check-btn { color: var(--border); flex-shrink: 0; transition: color 0.15s, transform 0.1s; }
+.check-btn svg { width: 28px; height: 28px; display: block; }
+.check-btn.done { color: var(--success); }
+.check-btn:active { transform: scale(0.88); }
+
+.day-complete-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px 2px 6px;
+  border-radius: 99px;
+}
+.day-complete-badge svg { width: 12px; height: 12px; }
 
 .question { padding: 10px 0; }
 .question + .question { border-top: 1px solid var(--border); }
@@ -325,6 +362,19 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   margin-bottom: 14px;
 }
 .banner svg { width: 22px; height: 22px; color: var(--accent); flex-shrink: 0; }
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 99px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.status-pill svg { width: 15px; height: 15px; }
+.status-pill--ontrack { background: color-mix(in srgb, var(--success) 14%, transparent); color: var(--success); }
+.status-pill--behind { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
 
 /* ---------- plan list ---------- */
 
@@ -360,7 +410,7 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   flex-shrink: 0;
 }
 .progress-dot.partial { border-color: var(--accent); }
-.progress-dot.done { border-color: var(--accent); background: var(--accent); }
+.progress-dot.done { border-color: var(--success); background: var(--success); }
 
 /* ---------- reader ---------- */
 

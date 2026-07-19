@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { getHebrewDateInfo, type HebrewHoliday } from "../lib/hebrewCalendar";
-import { dateForDay, progressKey } from "../lib/schedule";
+import { dateForDay, isDayComplete, progressKey } from "../lib/schedule";
 import { useAppState } from "../state/AppState";
 import {
   QUESTION_LABELS,
@@ -50,13 +50,19 @@ export function DayCard({ day }: { day: PlanDay }) {
   const hebrewInfo = date
     ? getHebrewDateInfo(date.getFullYear(), date.getMonth() + 1, date.getDate())
     : null;
+  const dayComplete = isDayComplete(progress, settings.planTemplateId, day.day);
 
   return (
     <>
       <div className="card">
         <div className="day-header">
-          <span className="small muted" style={{ fontWeight: 600 }}>
+          <span className="small muted" style={{ fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}>
             Day {day.day}
+            {dayComplete && (
+              <span className="day-complete-badge">
+                <CheckCircleIcon filled /> Complete
+              </span>
+            )}
           </span>
           {date && (
             <span className="small muted">
@@ -86,12 +92,12 @@ export function DayCard({ day }: { day: PlanDay }) {
       </div>
 
       <div className="section-label">Readings</div>
-      <div className="card" style={{ paddingTop: 4, paddingBottom: 4 }}>
+      <div className="card" style={{ paddingTop: 4, paddingBottom: 4, overflow: "hidden" }}>
         {TRACKS.filter((track) => day[track]).map((track) => {
           const Icon = TRACK_ICONS[track];
-          const done = progress.has(progressKey(day.day, track));
+          const done = progress.has(progressKey(settings.planTemplateId, day.day, track));
           return (
-            <div className="reading-row" key={track}>
+            <div className={`reading-row ${done ? "done" : ""}`} key={track}>
               <button
                 className="reading-main"
                 onClick={() =>

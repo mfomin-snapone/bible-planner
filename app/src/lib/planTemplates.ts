@@ -4,7 +4,7 @@
  * All other templates generate simplified daily reading schedules.
  */
 import { BIBLE_BOOKS, type BibleBook } from "./bibleBooks";
-import type { PlanDay } from "../types";
+import type { PlanDay, Question } from "../types";
 
 export interface PlanTemplate {
   id: string;
@@ -125,21 +125,76 @@ function formatChapterRefs(items: ChapterRef[]): string {
   return runs.join("; ");
 }
 
+const OBSERVATION_Q = [
+  "What stands out to you as you read {ref}?",
+  "Who are the key people or groups in {ref}, and what do they do?",
+  "What repeated words, images, or ideas do you notice in {ref}?",
+  "What's the central event or claim in {ref}?",
+  "What surprised you in {ref}?",
+];
+const WORD_STUDY_Q = [
+  "Is there a name, title, or key term in {ref} worth looking up?",
+  "Pick one word or phrase in {ref} that feels significant — what might it have meant to its first hearers?",
+  "What historical or cultural background would help you understand {ref} better?",
+  "Are there Hebrew or Greek ideas behind {ref} that get flattened in translation?",
+];
+const MESSIANIC_Q = [
+  "How might {ref} point forward to, or echo, the person and work of Messiah?",
+  "Does anything in {ref} anticipate themes later fulfilled in Yeshua?",
+  "How does {ref} fit into God's larger redemptive story?",
+  "What does {ref} reveal about God's character that finds its fullest expression in Messiah?",
+];
+const APPLICATION_Q = [
+  "What is one specific way {ref} could shape your actions this week?",
+  "Where do you see yourself in {ref} — and what is God inviting you to do?",
+  "What would it look like to actually live out {ref} today?",
+  "Is there a promise, warning, or command in {ref} you need to take to heart?",
+];
+const DISCUSSION_Q = [
+  "What question would you want to bring to a group about {ref}?",
+  "What part of {ref} would you want to talk through with someone else?",
+  "Where might people disagree on how {ref} is usually understood?",
+  "What would you ask someone who has studied {ref} more deeply than you?",
+];
+
+/**
+ * Template-based study questions for generated plans — the hand-authored
+ * default plan.json has its own bespoke questions instead. Gives every
+ * generated plan the same five question types the app already supports
+ * (observation/word study/messianic connection/application/discussion),
+ * varied by day so they don't repeat verbatim, and anchored to that day's
+ * actual reading rather than being generic filler.
+ */
+export function generateQuestions(day: number, ref: string): Question[] {
+  if (!ref) return [];
+  const pick = (bank: string[]) => bank[day % bank.length].replace("{ref}", ref);
+  return [
+    { type: "observation", text: pick(OBSERVATION_Q) },
+    { type: "word_study", text: pick(WORD_STUDY_Q) },
+    { type: "messianic_connection", text: pick(MESSIANIC_Q) },
+    { type: "application", text: pick(APPLICATION_Q) },
+    { type: "discussion", text: pick(DISCUSSION_Q) },
+  ];
+}
+
 /** New Testament (Matthew–Revelation) in 90 days, ~3 ch/day */
 function generateNT90(): PlanDay[] {
   const chapters = BIBLE_BOOKS
     .filter((b) => b.id >= 40)
     .flatMap((b) => Array.from({ length: b.chapters }, (_, i) => ({ book: b.name, ch: i + 1 })));
   const perDay = Math.ceil(chapters.length / 90);
-  return chunkArray(chapters, perDay).slice(0, 90).map((refs, i) => ({
-    day: i + 1,
-    tanakh: "",
-    psalm: "",
-    proverbs: "",
-    brit_chadashah: formatChapterRefs(refs),
-    theme: refs[0]?.book ?? "",
-    questions: [],
-  }));
+  return chunkArray(chapters, perDay).slice(0, 90).map((refs, i) => {
+    const brit_chadashah = formatChapterRefs(refs);
+    return {
+      day: i + 1,
+      tanakh: "",
+      psalm: "",
+      proverbs: "",
+      brit_chadashah,
+      theme: refs[0]?.book ?? "",
+      questions: generateQuestions(i + 1, brit_chadashah),
+    };
+  });
 }
 
 /** Torah (Genesis–Deuteronomy) in 50 days */
@@ -148,30 +203,37 @@ function generateTorah50(): PlanDay[] {
     .filter((b) => b.id <= 5)
     .flatMap((b) => Array.from({ length: b.chapters }, (_, i) => ({ book: b.name, ch: i + 1 })));
   const perDay = Math.ceil(chapters.length / 50);
-  return chunkArray(chapters, perDay).slice(0, 50).map((refs, i) => ({
-    day: i + 1,
-    tanakh: formatChapterRefs(refs),
-    psalm: "",
-    proverbs: "",
-    brit_chadashah: "",
-    theme: refs[0]?.book ?? "",
-    questions: [],
-  }));
+  return chunkArray(chapters, perDay).slice(0, 50).map((refs, i) => {
+    const tanakh = formatChapterRefs(refs);
+    return {
+      day: i + 1,
+      tanakh,
+      psalm: "",
+      proverbs: "",
+      brit_chadashah: "",
+      theme: refs[0]?.book ?? "",
+      questions: generateQuestions(i + 1, tanakh),
+    };
+  });
 }
 
 /** Psalms (5/day) + Proverbs (1 ch/day) in 30 days */
 function generatePsalms30(): PlanDay[] {
   const psalms = Array.from({ length: 150 }, (_, i) => ({ book: "Psalms", ch: i + 1 }));
   const proverbs = BIBLE_BOOKS.find((b) => b.id === 20)!;
-  return Array.from({ length: 30 }, (_, i) => ({
-    day: i + 1,
-    tanakh: "",
-    psalm: formatChapterRefs(psalms.slice(i * 5, i * 5 + 5)),
-    proverbs: `Proverbs ${(i % proverbs.chapters) + 1}`,
-    brit_chadashah: "",
-    theme: `Day ${i + 1} — Psalms ${i * 5 + 1}–${i * 5 + 5}`,
-    questions: [],
-  }));
+  return Array.from({ length: 30 }, (_, i) => {
+    const psalm = formatChapterRefs(psalms.slice(i * 5, i * 5 + 5));
+    const proverbsRef = `Proverbs ${(i % proverbs.chapters) + 1}`;
+    return {
+      day: i + 1,
+      tanakh: "",
+      psalm,
+      proverbs: proverbsRef,
+      brit_chadashah: "",
+      theme: `Day ${i + 1} — Psalms ${i * 5 + 1}–${i * 5 + 5}`,
+      questions: generateQuestions(i + 1, `${psalm} and ${proverbsRef}`),
+    };
+  });
 }
 
 /** Whole Bible (Genesis–Revelation) in 365 days */
@@ -190,7 +252,7 @@ function generateWholeBible1yr(): PlanDay[] {
       proverbs: "",
       brit_chadashah: nt,
       theme: `${first?.book ?? ""} ${first?.ch ?? ""}`,
-      questions: [],
+      questions: generateQuestions(i + 1, tanakh || nt),
     };
   });
 }
@@ -216,7 +278,7 @@ export function generateCustomPlan(
       proverbs: "",
       brit_chadashah: nt,
       theme: refs[0] ? `${refs[0].book} ${refs[0].ch}` : "",
-      questions: [],
+      questions: generateQuestions(i + 1, tanakh || nt),
     };
   });
 }
@@ -254,7 +316,7 @@ function generateFourPlusOne(): PlanDay[] {
       proverbs: "",
       brit_chadashah: nt,
       theme: first ? `${first.book} ${first.ch}` : "",
-      questions: [],
+      questions: generateQuestions(i + 1, tanakh || nt),
     };
   });
 }

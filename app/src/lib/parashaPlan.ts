@@ -1,4 +1,5 @@
 import type { PlanDay } from "../types";
+import { generateQuestions } from "./planTemplates";
 
 const MS_PER_DAY = 86_400_000;
 
@@ -71,7 +72,7 @@ export async function generateParashaPlan(anchor: Date, days: number): Promise<P
       proverbs: "",
       brit_chadashah: "",
       theme: sedra.haftarah ? `${sedra.title} — Haftarah: ${sedra.haftarah}` : sedra.title,
-      questions: [],
+      questions: generateQuestions(i + 1, sedra.title),
     });
   }
   return plan;

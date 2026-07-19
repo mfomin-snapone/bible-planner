@@ -33,13 +33,33 @@ import { generatePlan, generateCustomPlan } from "../lib/planTemplates";
 const STATE_KEY = "bible-planner:state";
 const SKIP_AUTH_KEY = "bible-planner:skip-auth";
 
+/**
+ * Progress keys used to be un-scoped ("day:track"); they're now scoped per
+ * plan template ("templateId::day::track") so switching plans doesn't mix up
+ * progress between them. Old-format keys belonged to whatever template was
+ * active, so they migrate into that template's namespace instead of vanishing.
+ * Applied to every path that can bring a `PlanState` blob into memory — the
+ * initial local load, and both server-sync reconciliation points below.
+ */
+function migrateState(raw: PlanState): PlanState {
+  const templateId = raw.settings?.planTemplateId ?? DEFAULT_SETTINGS.planTemplateId;
+  const progress = Array.isArray(raw.progress) ? raw.progress : [];
+  return {
+    ...raw,
+    progress: progress.map((key) =>
+      typeof key === "string" && !key.includes("::") ? `${templateId}::${key}` : key,
+    ),
+  };
+}
+
 function loadLocalState(): PlanState {
   try {
     const raw = localStorage.getItem(STATE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as PlanState;
-      return {
-        settings: { ...DEFAULT_SETTINGS, ...parsed.settings },
+      const settings = { ...DEFAULT_SETTINGS, ...parsed.settings };
+      return migrateState({
+        settings,
         progress: Array.isArray(parsed.progress) ? parsed.progress : [],
         answers:
           parsed.answers && typeof parsed.answers === "object" && !Array.isArray(parsed.answers)
@@ -50,7 +70,7 @@ function loadLocalState(): PlanState {
             ? parsed.customQuestions
             : {},
         updatedAt: parsed.updatedAt ?? 0,
-      };
+      });
     }
   } catch {
     // Corrupt local state falls through to defaults.
@@ -183,7 +203,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         const body = (err as Error & { body?: { data?: PlanState; updatedAt?: number } }).body;
         if (status === 409 && body?.data) {
           // Another device wrote newer state; adopt it.
-          setState({ ...body.data, updatedAt: body.updatedAt ?? Date.now() });
+          setState(migrateState({ ...body.data, updatedAt: body.updatedAt ?? Date.now() }));
           setSyncError(null);
         } else if (status === 401) {
           setSyncError("Session expired — sign in again to keep syncing.");
@@ -219,7 +239,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           });
           return;
         }
-        setState((prev) => (updatedAt > prev.updatedAt ? { ...data, updatedAt } : prev));
+        setState((prev) => (updatedAt > prev.updatedAt ? migrateState({ ...data, updatedAt }) : prev));
       })
       .catch((err) => {
         if ((err as Error & { status?: number }).status === 401) {
@@ -242,7 +262,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const toggleProgress = useCallback(
     (day: number, track: Track) => {
       mutate((prev) => {
-        const key = progressKey(day, track);
+        const key = progressKey(prev.settings.planTemplateId, day, track);
         const set = new Set(prev.progress);
         if (set.has(key)) set.delete(key);
         else set.add(key);
@@ -253,7 +273,12 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   );
 
   const resetProgress = useCallback(() => {
-    mutate((prev) => ({ ...prev, progress: [] }));
+    // Only clears the active plan's progress — other plans you've switched
+    // away from keep theirs, matching the per-template progress scoping.
+    mutate((prev) => ({
+      ...prev,
+      progress: prev.progress.filter((key) => !key.startsWith(`${prev.settings.planTemplateId}::`)),
+    }));
   }, [mutate]);
 
   const updateAnswer = useCallback(
@@ -302,10 +327,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       try {
         const { data, updatedAt } = await fetchServerState();
         if (data) {
+          const migratedData = migrateState(data);
           setState((prev) => {
             const merged: PlanState = {
-              settings: updatedAt > prev.updatedAt ? data.settings : prev.settings,
-              progress: [...new Set([...prev.progress, ...data.progress])],
+              settings: updatedAt > prev.updatedAt ? migratedData.settings : prev.settings,
+              progress: [...new Set([...prev.progress, ...migratedData.progress])],
               answers: updatedAt > prev.updatedAt ? (data.answers ?? {}) : prev.answers,
               customQuestions: updatedAt > prev.updatedAt ? (data.customQuestions ?? {}) : (prev.customQuestions ?? {}),
               updatedAt: Date.now(),

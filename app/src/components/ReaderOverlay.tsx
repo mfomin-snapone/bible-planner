@@ -42,7 +42,7 @@ export function ReaderOverlay({
   }, [onClose]);
 
   const markable = request.day !== undefined && request.track !== undefined;
-  const done = markable && progress.has(progressKey(request.day!, request.track!));
+  const done = markable && progress.has(progressKey(settings.planTemplateId, request.day!, request.track!));
 
   return (
     <div className="reader-overlay" role="dialog" aria-modal="true" aria-label={request.reference}>

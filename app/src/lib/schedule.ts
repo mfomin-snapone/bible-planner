@@ -37,23 +37,28 @@ export function dateForDay(settings: Settings, day: number): Date | null {
   return new Date(localMidnight(settings.startDate) + (day - settings.startDay) * MS_PER_DAY);
 }
 
-export function progressKey(day: number, track: string): string {
-  return `${day}:${track}`;
+/**
+ * Progress is scoped per plan template so switching plans doesn't bleed one
+ * plan's checked-off days into another's (and switching back restores it).
+ */
+export function progressKey(templateId: string, day: number, track: string): string {
+  return `${templateId}::${day}::${track}`;
 }
 
-export function isDayComplete(progress: Set<string>, day: number): boolean {
-  return TRACKS.every((track) => progress.has(progressKey(day, track)));
+export function isDayComplete(progress: Set<string>, templateId: string, day: number): boolean {
+  return TRACKS.every((track) => progress.has(progressKey(templateId, day, track)));
 }
 
 /** The earliest scheduled day (at or after startDay) that isn't fully checked off. */
 export function firstIncompleteDay(
   settings: Settings,
+  templateId: string,
   progress: Set<string>,
   totalDays: number,
 ): number {
   const lower = Math.min(Math.max(settings.startDay, 1), totalDays);
   for (let day = lower; day <= totalDays; day++) {
-    if (!isDayComplete(progress, day)) return day;
+    if (!isDayComplete(progress, templateId, day)) return day;
   }
   return totalDays;
 }
@@ -61,24 +66,26 @@ export function firstIncompleteDay(
 /** How many days the schedule has drifted ahead of actual checked-off progress. */
 export function daysBehind(
   settings: Settings,
+  templateId: string,
   progress: Set<string>,
   totalDays: number,
   now = new Date(),
 ): number {
   const current = currentDay(settings, totalDays, now);
   if (current === null) return 0;
-  return Math.max(0, current - firstIncompleteDay(settings, progress, totalDays));
+  return Math.max(0, current - firstIncompleteDay(settings, templateId, progress, totalDays));
 }
 
 /** Settings patch that shifts the schedule so today becomes the first unfinished day. */
 export function catchMeUp(
   settings: Settings,
+  templateId: string,
   progress: Set<string>,
   totalDays: number,
   now = new Date(),
 ): Pick<Settings, "startDate" | "startDay"> {
   return {
     startDate: todayIso(now),
-    startDay: firstIncompleteDay(settings, progress, totalDays),
+    startDay: firstIncompleteDay(settings, templateId, progress, totalDays),
   };
 }

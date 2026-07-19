@@ -49,7 +49,7 @@ export const TRANSLATIONS: { code: Translation; label: string }[] = [
   { code: "NIV", label: "New International Version" },
 ];
 
-export type ThemeMode = "system" | "light" | "sepia" | "blue" | "dark" | "amoled";
+export type ThemeMode = "system" | "light" | "sepia" | "blue" | "dark" | "charcoal" | "amoled";
 export type Accent = "deepblue" | "olive" | "purple" | "crimson" | "teal" | "amber";
 export type FontChoice = "system" | "serif" | "rounded" | "mono";
 export type TextScale = "s" | "m" | "l" | "xl";
@@ -61,6 +61,7 @@ export const THEME_OPTIONS: { id: ThemeMode; label: string; swatch: string }[] =
   { id: "sepia", label: "Sepia", swatch: "#f3ead8" },
   { id: "blue", label: "Blue", swatch: "#101b2d" },
   { id: "dark", label: "Dark", swatch: "#22262f" },
+  { id: "charcoal", label: "Charcoal", swatch: "#2a2a2c" },
   { id: "amoled", label: "AMOLED", swatch: "#000000" },
 ];
 

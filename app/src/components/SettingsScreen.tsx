@@ -23,11 +23,12 @@ export function SettingsScreen() {
   const completeDays =
     total > 0
       ? Array.from({ length: total }, (_, i) => i + 1).filter((d) =>
-          isDayComplete(progress, d),
+          isDayComplete(progress, settings.planTemplateId, d),
         ).length
       : 0;
   const today = currentDay(settings, total);
-  const behind = daysBehind(settings, progress, total);
+  const behind = daysBehind(settings, settings.planTemplateId, progress, total);
+  const activeTemplate = PLAN_TEMPLATES.find((t) => t.id === settings.planTemplateId) ?? PLAN_TEMPLATES[0];
 
   return (
     <>
@@ -114,22 +115,29 @@ export function SettingsScreen() {
               <label>Current day</label>
               <span className="muted">{today !== null ? `Day ${today}` : "—"}</span>
             </div>
+            <div className="setting-row">
+              <label>Schedule</label>
+              {behind > 0 ? (
+                <span className="status-pill status-pill--behind">
+                  <ClockBackIcon className="q-icon" /> {behind} day{behind === 1 ? "" : "s"} behind
+                </span>
+              ) : (
+                <span className="status-pill status-pill--ontrack">On track</span>
+              )}
+            </div>
             {behind > 0 && (
               <div className="setting-row">
-                <label>
-                  <ClockBackIcon className="q-icon" /> {behind} day
-                  {behind === 1 ? "" : "s"} behind
-                </label>
+                <label>Catch up</label>
                 {confirmCatchUp ? (
                   <span style={{ display: "flex", gap: 8 }}>
                     <button
                       className="btn"
                       onClick={() => {
-                        updateSettings(catchMeUp(settings, progress, total));
+                        updateSettings(catchMeUp(settings, settings.planTemplateId, progress, total));
                         setConfirmCatchUp(false);
                       }}
                     >
-                      Confirm Day {firstIncompleteDay(settings, progress, total)}
+                      Confirm Day {firstIncompleteDay(settings, settings.planTemplateId, progress, total)}
                     </button>
                     <button
                       className="btn btn-secondary"
@@ -179,7 +187,7 @@ export function SettingsScreen() {
         {confirmReset ? (
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <span className="small" style={{ flex: 1 }}>
-              Reset all reading progress? This cannot be undone.
+              Reset progress for "{activeTemplate.name}"? This cannot be undone. (Other plans you've used keep their progress.)
             </span>
             <button
               className="btn btn-danger"
@@ -196,7 +204,7 @@ export function SettingsScreen() {
           </div>
         ) : (
           <button className="btn btn-danger btn-block" onClick={() => setConfirmReset(true)}>
-            Reset All Progress
+            Reset This Plan's Progress
           </button>
         )}
       </div>
@@ -278,9 +286,24 @@ function PlanTemplateCard() {
   const { settings, updateSettings } = useAppState();
   const [showPicker, setShowPicker] = useState(false);
   const [showBuilder, setShowBuilder] = useState(false);
+  const [pendingTemplate, setPendingTemplate] = useState<(typeof PLAN_TEMPLATES)[number] | null>(null);
 
   const active = PLAN_TEMPLATES.find((t) => t.id === settings.planTemplateId) ?? PLAN_TEMPLATES[0];
   const isCustom = active.id === "custom";
+
+  function applySwitch(t: (typeof PLAN_TEMPLATES)[number]) {
+    setPendingTemplate(null);
+    if (t.id === "custom") {
+      setShowBuilder(true);
+      return;
+    }
+    if (t.id === "parasha") {
+      // Anchors the cycle so "Day 1" is always today's actual portion.
+      updateSettings({ planTemplateId: t.id, startDate: todayIso(), startDay: 1 });
+      return;
+    }
+    updateSettings({ planTemplateId: t.id });
+  }
 
   return (
     <>
@@ -318,19 +341,13 @@ function PlanTemplateCard() {
                 className="plan-template-option"
                 data-active={t.id === settings.planTemplateId}
                 onClick={() => {
-                  if (t.id === "custom") {
-                    setShowPicker(false);
-                    setShowBuilder(true);
-                    return;
-                  }
-                  if (t.id === "parasha") {
-                    // Anchors the cycle so "Day 1" is always today's actual portion.
-                    updateSettings({ planTemplateId: t.id, startDate: todayIso(), startDay: 1 });
-                    setShowPicker(false);
-                    return;
-                  }
-                  updateSettings({ planTemplateId: t.id });
                   setShowPicker(false);
+                  if (t.id === settings.planTemplateId) {
+                    // Re-picking the active plan just edits it (custom) — not a switch.
+                    if (t.id === "custom") setShowBuilder(true);
+                    return;
+                  }
+                  setPendingTemplate(t);
                 }}
               >
                 <span style={{ fontWeight: 600 }}>{t.name}</span>
@@ -340,6 +357,21 @@ function PlanTemplateCard() {
             <button className="btn btn-secondary btn-block" style={{ marginTop: 4 }} onClick={() => setShowPicker(false)}>
               Cancel
             </button>
+          </div>
+        )}
+        {pendingTemplate && (
+          <div className="setting-row" style={{ display: "block" }}>
+            <p className="small" style={{ margin: "0 0 10px" }}>
+              Switch to "{pendingTemplate.name}"? Your progress on "{active.name}" is saved — switch back anytime to pick up where you left off.
+            </p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn btn-secondary btn-block" onClick={() => setPendingTemplate(null)}>
+                Cancel
+              </button>
+              <button className="btn btn-block" onClick={() => applySwitch(pendingTemplate)}>
+                Switch Plan
+              </button>
+            </div>
           </div>
         )}
       </div>

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { catchMeUp, currentDay, daysBehind, firstIncompleteDay, todayIso } from "../lib/schedule";
 import { TANAKH_BOOKS, BRIT_CHADASHAH_BOOKS, findDayForBook } from "../lib/planBooks";
 import { useAppState } from "../state/AppState";
-import { BookIcon, ClockBackIcon } from "./icons";
+import { BookIcon, CheckCircleIcon, ClockBackIcon } from "./icons";
 import { DayCard } from "./DayCard";
 import { DayNumberInput } from "./DayNumberInput";
 
@@ -24,7 +24,7 @@ export function TodayScreen() {
       {!planLoading && !planDay && <Onboarding />}
       {!planLoading && planDay && (
         <>
-          <CatchUpBanner />
+          <ScheduleStatus />
           <DayCard day={planDay} />
         </>
       )}
@@ -32,14 +32,21 @@ export function TodayScreen() {
   );
 }
 
-function CatchUpBanner() {
+function ScheduleStatus() {
   const { plan, settings, progress, updateSettings } = useAppState();
   const [confirming, setConfirming] = useState(false);
 
-  const behind = daysBehind(settings, progress, plan.length);
-  if (behind === 0) return null;
+  const behind = daysBehind(settings, settings.planTemplateId, progress, plan.length);
 
-  const target = firstIncompleteDay(settings, progress, plan.length);
+  if (behind === 0) {
+    return (
+      <div className="status-pill status-pill--ontrack" style={{ marginBottom: 12 }}>
+        <CheckCircleIcon filled /> On track
+      </div>
+    );
+  }
+
+  const target = firstIncompleteDay(settings, settings.planTemplateId, progress, plan.length);
 
   return (
     <div className="banner">
@@ -59,7 +66,7 @@ function CatchUpBanner() {
           <button
             className="btn"
             onClick={() => {
-              updateSettings(catchMeUp(settings, progress, plan.length));
+              updateSettings(catchMeUp(settings, settings.planTemplateId, progress, plan.length));
               setConfirming(false);
             }}
           >
